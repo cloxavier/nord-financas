@@ -19,7 +19,7 @@ import {
   Loader2,
   User
 } from 'lucide-react';
-import { formatDate } from '../lib/utils';
+import { formatDate, formatDateOnly } from '../lib/utils';
 
 export default function PatientDetailPage() {
   // Obtém o ID do paciente da URL
@@ -157,7 +157,7 @@ export default function PatientDetailPage() {
                 <Calendar className="text-gray-400 mt-0.5" size={18} />
                 <div>
                   <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Nascimento</p>
-                  <p className="text-sm text-gray-900">{patient.birth_date ? formatDate(patient.birth_date) : 'Não informado'}</p>
+                  <p className="text-sm text-gray-900">{patient.birth_date ? formatDateOnly(patient.birth_date) : 'Não informado'}</p>
                 </div>
               </div>
               {/* Telefone */}

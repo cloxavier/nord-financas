@@ -36,3 +36,41 @@ export function formatDate(date: string | Date | null | undefined) {
   if (isNaN(d.getTime())) return 'Data Inválida';
   return new Intl.DateTimeFormat('pt-BR').format(d);
 }
+
+/**
+ * Formata uma string de data YYYY-MM-DD para o padrão brasileiro (DD/MM/AAAA)
+ * sem sofrer deslocamento de fuso horário.
+ * @param dateStr A string de data no formato YYYY-MM-DD.
+ */
+export function formatDateOnly(dateStr: string | null | undefined) {
+  if (!dateStr) return 'Não informado';
+  if (typeof dateStr !== 'string') return formatDate(dateStr);
+  
+  // Se for uma data ISO completa (com T), pega apenas a parte da data
+  const pureDate = dateStr.split('T')[0];
+  const parts = pureDate.split('-');
+  
+  if (parts.length !== 3) return formatDate(dateStr);
+  
+  const [year, month, day] = parts;
+  return `${day}/${month}/${year}`;
+}
+
+/**
+ * Prepara uma data para ser exibida em um input do tipo date (YYYY-MM-DD),
+ * garantindo que não haja deslocamento de fuso horário.
+ * @param date A data como string ou objeto Date.
+ */
+export function formatDateOnlyForInput(date: string | Date | null | undefined) {
+  if (!date) return '';
+  if (typeof date === 'string') {
+    return date.split('T')[0];
+  }
+  if (date instanceof Date) {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return '';
+}

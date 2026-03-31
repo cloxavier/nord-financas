@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { ArrowLeft, Save, Loader2, User, Phone, Mail, CreditCard, Calendar, MapPin, FileText } from 'lucide-react';
+import { formatDateOnlyForInput } from '../lib/utils';
 
 export default function PatientFormPage() {
   // Obtém o ID do paciente da URL (se estiver editando)
@@ -182,7 +183,7 @@ export default function PatientFormPage() {
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                   <input
                     type="date"
-                    value={formData.birth_date ?? ''}
+                    value={formatDateOnlyForInput(formData.birth_date)}
                     onChange={e => setFormData({...formData, birth_date: e.target.value})}
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   />

@@ -21,12 +21,12 @@ export const settingsSections: SettingsSection[] = [
     icon: Building2,
   },
   {
-    key: 'financeiro-pix',
-    title: 'Financeiro & Pix',
-    description: 'Base estrutural criada para a próxima fase de dados financeiros e recebimentos.',
-    path: '/configuracoes/financeiro-pix',
-    icon: CreditCard,
-  },
+  key: 'financeiro-pix',
+  title: 'Financeiro & Pix',
+  description: 'Configure os dados básicos usados em cobranças, recebimentos e Pix.',
+  path: '/configuracoes/financeiro-pix',
+  icon: CreditCard,
+ },
   {
     key: 'notificacoes',
     title: 'Notificações',

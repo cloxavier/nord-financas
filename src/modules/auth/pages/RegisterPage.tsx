@@ -24,48 +24,33 @@ export default function RegisterPage() {
       return;
     }
 
-    try {
-      // Cria o usuário no Supabase Auth
-      const { data, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          }
-        }
-      });
-
-      if (authError) throw authError;
-
-      const user = data.user;
-
-      if (user) {
-        // Cria o perfil na tabela 'profiles'
-        const { error: profileError } = await supabase.from('profiles').insert({
-          id: user.id,
-          full_name: fullName,
-          role: 'admin', // Papel padrão para o primeiro usuário (simplificado)
-          created_at: new Date().toISOString(),
+      try {
+        const { error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+            },
+            emailRedirectTo: `${window.location.origin}/login`,
+          },
         });
 
-        if (profileError) throw profileError;
-      }
+        if (authError) throw authError;
 
-      setSuccess(true);
-      // Aguarda um pouco e navega para o dashboard
-      setTimeout(() => navigate('/dashboard'), 3000);
-    } catch (err: any) {
-      let message = 'Erro ao criar conta. Tente novamente.';
-      if (err.message === 'User already registered') {
-        message = 'Este e-mail já está em uso.';
-      } else if (err.message?.includes('password')) {
-        message = 'A senha deve ter pelo menos 6 caracteres.';
+        setSuccess(true);
+        setTimeout(() => navigate('/login'), 3000);
+      } catch (err: any) {
+          let message = 'Erro ao criar conta. Tente novamente.';
+          if (err.message === 'User already registered') {
+            message = 'Este e-mail já está em uso.';
+          } else if (err.message?.includes('password')) {
+            message = 'A senha deve ter pelo menos 6 caracteres.';
+          }
+          setError(message);
+      } finally {
+        setLoading(false);
       }
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
   };
 
   if (success) {

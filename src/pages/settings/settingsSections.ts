@@ -27,13 +27,13 @@ export const settingsSections: SettingsSection[] = [
   path: '/configuracoes/financeiro-pix',
   icon: CreditCard,
  },
-  {
-    key: 'notificacoes',
-    title: 'Notificações',
-    description: 'Base estrutural para alertas internos e cobrança assistida por WhatsApp.',
-    path: '/configuracoes/notificacoes',
-    icon: Bell,
-  },
+ {
+  key: 'notificacoes',
+  title: 'Notificações',
+  description: 'Configure alertas internos e a base da cobrança assistida por WhatsApp.',
+  path: '/configuracoes/notificacoes',
+  icon: Bell,
+},
   {
     key: 'permissoes-seguranca',
     title: 'Permissões e Segurança',

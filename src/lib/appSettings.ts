@@ -1,15 +1,20 @@
 /**
  * Serviço central de leitura e escrita das configurações da aplicação.
- * Nesta fase, ele cuida apenas dos dados de Financeiro & Pix,
- * reaproveitando a tabela app_settings já existente no Supabase.
+ * Nesta fase, ele cuida de:
+ * - Financeiro & Pix
+ * - Notificações
+ *
+ * Tudo continua centralizado na tabela app_settings para manter simplicidade e baixo risco.
  */
 
 import { supabase } from './supabase';
 
 /**
- * Estrutura do formulário de Financeiro & Pix.
- * Mantemos todos os campos como string para facilitar bind com inputs e textareas.
+ * =========================
+ * Financeiro & Pix
+ * =========================
  */
+
 export interface FinancialPixSettingsFormData {
   pix_key_type: string;
   pix_key: string;
@@ -18,18 +23,11 @@ export interface FinancialPixSettingsFormData {
   default_contract_notes: string;
 }
 
-/**
- * Estrutura retornada ao carregar os dados.
- * Inclui o ID do registro atual, se existir.
- */
 export interface FinancialPixSettingsRecord extends FinancialPixSettingsFormData {
   id: string | null;
   updated_at: string | null;
 }
 
-/**
- * Estado vazio padrão do formulário.
- */
 export const EMPTY_FINANCIAL_PIX_SETTINGS: FinancialPixSettingsFormData = {
   pix_key_type: '',
   pix_key: '',
@@ -39,38 +37,73 @@ export const EMPTY_FINANCIAL_PIX_SETTINGS: FinancialPixSettingsFormData = {
 };
 
 /**
- * Converte strings vazias em null antes de enviar para o banco.
- * Isso evita gravar campos vazios como '' e mantém o banco mais limpo.
+ * =========================
+ * Notificações
+ * =========================
  */
+
+export interface NotificationSettingsFormData {
+  due_alert_days: string;
+  highlight_overdue_installments: boolean;
+  show_dashboard_alert_summary: boolean;
+  enable_whatsapp_quick_charge: boolean;
+  reminder_message_template: string;
+  overdue_message_template: string;
+}
+
+export interface NotificationSettingsRecord extends NotificationSettingsFormData {
+  id: string | null;
+  updated_at: string | null;
+}
+
+export const DEFAULT_REMINDER_MESSAGE_TEMPLATE =
+  'Olá, {nome_paciente}. Passando para lembrar que há um vencimento em aberto com data prevista para {vencimento}. Se já realizou o pagamento, por favor envie o comprovante.';
+
+export const DEFAULT_OVERDUE_MESSAGE_TEMPLATE =
+  'Olá, {nome_paciente}. Identificamos uma pendência com vencimento em {vencimento}, no valor de {valor}. Se desejar, podemos te orientar sobre a melhor forma de regularização.';
+
+export const EMPTY_NOTIFICATION_SETTINGS: NotificationSettingsFormData = {
+  due_alert_days: '3',
+  highlight_overdue_installments: true,
+  show_dashboard_alert_summary: true,
+  enable_whatsapp_quick_charge: true,
+  reminder_message_template: DEFAULT_REMINDER_MESSAGE_TEMPLATE,
+  overdue_message_template: DEFAULT_OVERDUE_MESSAGE_TEMPLATE,
+};
+
+/**
+ * =========================
+ * Utilitários internos
+ * =========================
+ */
+
 function emptyToNull(value: string): string | null {
   const trimmed = value.trim();
   return trimmed === '' ? null : trimmed;
 }
 
-/**
- * Converte null/undefined do banco em string vazia para o formulário.
- */
 function nullToEmpty(value?: string | null): string {
   return value ?? '';
 }
 
+function booleanOrDefault(value: boolean | null | undefined, fallback: boolean): boolean {
+  return value ?? fallback;
+}
+
+function stringNumberOrDefault(value: number | null | undefined, fallback: string): string {
+  if (value === null || value === undefined) return fallback;
+  return String(value);
+}
+
 /**
- * Busca o registro mais recente de app_settings.
- * Como o projeto hoje trabalha como um único ambiente de clínica,
- * usamos o registro mais recente como fonte de verdade.
+ * Busca o registro mais recente da tabela app_settings.
+ * O sistema hoje trabalha como configuração central da clínica,
+ * então o registro mais recente continua sendo a fonte de verdade.
  */
-export async function getFinancialPixSettings(): Promise<FinancialPixSettingsRecord> {
+async function getLatestAppSettingsRecord() {
   const { data, error } = await supabase
     .from('app_settings')
-    .select(`
-      id,
-      pix_key_type,
-      pix_key,
-      beneficiary_name,
-      default_payment_instructions,
-      default_contract_notes,
-      updated_at
-    `)
+    .select('*')
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -78,6 +111,85 @@ export async function getFinancialPixSettings(): Promise<FinancialPixSettingsRec
   if (error) {
     throw error;
   }
+
+  return data;
+}
+
+/**
+ * Atualiza ou cria o registro central de app_settings.
+ * Reutilizado pelos módulos de configurações.
+ */
+async function upsertLatestAppSettings(
+  payload: Record<string, any>,
+  currentId?: string | null
+): Promise<{ id: string; updated_at: string | null }> {
+  const completePayload = {
+    ...payload,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (currentId) {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .update(completePayload)
+      .eq('id', currentId)
+      .select('id, updated_at')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      updated_at: data.updated_at ?? null,
+    };
+  }
+
+  const existing = await getLatestAppSettingsRecord();
+
+  if (existing?.id) {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .update(completePayload)
+      .eq('id', existing.id)
+      .select('id, updated_at')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      updated_at: data.updated_at ?? null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from('app_settings')
+    .insert(completePayload)
+    .select('id, updated_at')
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    id: data.id,
+    updated_at: data.updated_at ?? null,
+  };
+}
+
+/**
+ * =========================
+ * Financeiro & Pix
+ * =========================
+ */
+
+export async function getFinancialPixSettings(): Promise<FinancialPixSettingsRecord> {
+  const data = await getLatestAppSettingsRecord();
 
   if (!data) {
     return {
@@ -98,14 +210,6 @@ export async function getFinancialPixSettings(): Promise<FinancialPixSettingsRec
   };
 }
 
-/**
- * Salva os dados de Financeiro & Pix.
- * Regra:
- * - se já existir um registro, atualiza;
- * - se não existir, cria o primeiro.
- *
- * Retorna o ID e a data de atualização persistidos no banco.
- */
 export async function saveFinancialPixSettings(
   values: FinancialPixSettingsFormData,
   currentId?: string | null
@@ -116,79 +220,67 @@ export async function saveFinancialPixSettings(
     beneficiary_name: emptyToNull(values.beneficiary_name),
     default_payment_instructions: emptyToNull(values.default_payment_instructions),
     default_contract_notes: emptyToNull(values.default_contract_notes),
-    updated_at: new Date().toISOString(),
   };
 
-  /**
-   * Se a tela já carregou um ID existente, atualiza direto esse registro.
-   */
-  if (currentId) {
-    const { data, error } = await supabase
-      .from('app_settings')
-      .update(payload)
-      .eq('id', currentId)
-      .select('id, updated_at')
-      .single();
+  return upsertLatestAppSettings(payload, currentId);
+}
 
-    if (error) {
-      throw error;
-    }
+/**
+ * =========================
+ * Notificações
+ * =========================
+ */
 
+export async function getNotificationSettings(): Promise<NotificationSettingsRecord> {
+  const data = await getLatestAppSettingsRecord();
+
+  if (!data) {
     return {
-      id: data.id,
-      updated_at: data.updated_at ?? null,
+      id: null,
+      updated_at: null,
+      ...EMPTY_NOTIFICATION_SETTINGS,
     };
-  }
-
-  /**
-   * Proteção adicional:
-   * mesmo sem currentId, verificamos se já existe registro no banco
-   * para evitar duplicidade desnecessária.
-   */
-  const { data: existing, error: existingError } = await supabase
-    .from('app_settings')
-    .select('id')
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingError) {
-    throw existingError;
-  }
-
-  if (existing?.id) {
-    const { data, error } = await supabase
-      .from('app_settings')
-      .update(payload)
-      .eq('id', existing.id)
-      .select('id, updated_at')
-      .single();
-
-    if (error) {
-      throw error;
-    }
-
-    return {
-      id: data.id,
-      updated_at: data.updated_at ?? null,
-    };
-  }
-
-  /**
-   * Se realmente não existe nenhum registro ainda, cria o primeiro.
-   */
-  const { data, error } = await supabase
-    .from('app_settings')
-    .insert(payload)
-    .select('id, updated_at')
-    .single();
-
-  if (error) {
-    throw error;
   }
 
   return {
     id: data.id,
     updated_at: data.updated_at ?? null,
+    due_alert_days: stringNumberOrDefault(data.due_alert_days, '3'),
+    highlight_overdue_installments: booleanOrDefault(
+      data.highlight_overdue_installments,
+      true
+    ),
+    show_dashboard_alert_summary: booleanOrDefault(
+      data.show_dashboard_alert_summary,
+      true
+    ),
+    enable_whatsapp_quick_charge: booleanOrDefault(
+      data.enable_whatsapp_quick_charge,
+      true
+    ),
+    reminder_message_template:
+      nullToEmpty(data.reminder_message_template) || DEFAULT_REMINDER_MESSAGE_TEMPLATE,
+    overdue_message_template:
+      nullToEmpty(data.overdue_message_template) || DEFAULT_OVERDUE_MESSAGE_TEMPLATE,
   };
+}
+
+export async function saveNotificationSettings(
+  values: NotificationSettingsFormData,
+  currentId?: string | null
+): Promise<{ id: string; updated_at: string | null }> {
+  const parsedDays = Number(values.due_alert_days);
+
+  const payload = {
+    due_alert_days: Number.isFinite(parsedDays) && parsedDays >= 0 ? parsedDays : 3,
+    highlight_overdue_installments: values.highlight_overdue_installments,
+    show_dashboard_alert_summary: values.show_dashboard_alert_summary,
+    enable_whatsapp_quick_charge: values.enable_whatsapp_quick_charge,
+    reminder_message_template:
+      emptyToNull(values.reminder_message_template) ?? DEFAULT_REMINDER_MESSAGE_TEMPLATE,
+    overdue_message_template:
+      emptyToNull(values.overdue_message_template) ?? DEFAULT_OVERDUE_MESSAGE_TEMPLATE,
+  };
+
+  return upsertLatestAppSettings(payload, currentId);
 }

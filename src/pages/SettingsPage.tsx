@@ -1,88 +1,68 @@
 /**
- * Página de Configurações do Sistema.
- * Permite ajustar preferências da clínica, dados financeiros, notificações e segurança.
- * Atualmente funciona como uma interface estática para futuras implementações de personalização.
+ * Layout principal da área de Configurações.
+ * Nesta fase, o objetivo é organizar navegação, nomenclatura e rotas sem ainda implementar
+ * toda a lógica de persistência das próximas subáreas.
  */
 import React from 'react';
-import { Settings, Building2, CreditCard, Shield, Bell } from 'lucide-react';
+import { NavLink, Outlet } from 'react-router-dom';
+import { Settings } from 'lucide-react';
+import { settingsSections } from '@/src/pages/settings/settingsSections';
+import { cn } from '@/src/lib/utils';
 
 export default function SettingsPage() {
   return (
     <div className="space-y-6">
-      {/* Cabeçalho da Página */}
+      {/* Cabeçalho da área de Configurações */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Configurações</h1>
-          <p className="text-gray-500">Ajuste as preferências do sistema e dados da clínica.</p>
+          <p className="text-gray-500">
+            Organize os dados da clínica, futuras preferências financeiras, alertas e regras de acesso.
+          </p>
         </div>
       </div>
 
-      {/* Container Principal das Configurações */}
+      {/* Estrutura principal com navegação lateral e área de conteúdo */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="grid grid-cols-1 md:grid-cols-4 min-h-[500px]">
-          {/* Barra Lateral de Navegação das Configurações */}
-          <div className="bg-gray-50 border-r p-4 space-y-1">
-            {/* Botão: Dados da Clínica (Ativo por padrão) */}
-            <button className="w-full flex items-center gap-3 px-3 py-2 bg-white text-blue-600 font-bold rounded-lg border shadow-sm">
-              <Building2 size={18} />
-              <span className="text-sm">Dados da Clínica</span>
-            </button>
-            {/* Botão: Financeiro & PIX */}
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-              <CreditCard size={18} />
-              <span className="text-sm">Financeiro & PIX</span>
-            </button>
-            {/* Botão: Notificações */}
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-              <Bell size={18} />
-              <span className="text-sm">Notificações</span>
-            </button>
-            {/* Botão: Segurança & RLS */}
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-              <Shield size={18} />
-              <span className="text-sm">Segurança & RLS</span>
-            </button>
-          </div>
-
-          {/* Conteúdo da Seção Selecionada (Dados da Clínica) */}
-          <div className="md:col-span-3 p-8">
-            <h3 className="text-lg font-bold text-gray-900 mb-6">Dados da Clínica</h3>
-            <div className="space-y-6 max-w-2xl">
-              {/* Campos de Identificação */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Clínica</label>
-                  <input type="text" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Nord Odontologia" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">CNPJ / CPF</label>
-                  <input type="text" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="00.000.000/0001-00" />
-                </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 min-h-[560px]">
+          <aside className="bg-gray-50 border-r p-4 space-y-1">
+            <div className="flex items-center gap-3 px-3 py-2.5 mb-3 rounded-lg bg-white border shadow-sm">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Settings size={18} />
               </div>
-              {/* Campo de Endereço */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Endereço Completo</label>
-                <input type="text" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Rua Exemplo, 123 - Centro" />
-              </div>
-              {/* Campos de Contato */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
-                  <input type="text" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="(11) 4002-8922" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">E-mail de Contato</label>
-                  <input type="email" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="contato@nord.com" />
-                </div>
-              </div>
-              {/* Ação de Salvar */}
-              <div className="pt-4">
-                <button className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors">
-                  Salvar Alterações
-                </button>
+                <p className="text-sm font-semibold text-gray-900">Área de Configurações</p>
+                <p className="text-xs text-gray-500">Navegação organizada por módulo</p>
               </div>
             </div>
-          </div>
+
+            {settingsSections.map((section) => {
+              const Icon = section.icon;
+              return (
+                <NavLink
+                  key={section.key}
+                  to={section.path}
+                  className={({ isActive }) => cn(
+                    'w-full flex items-start gap-3 px-3 py-3 rounded-lg transition-colors border',
+                    isActive
+                      ? 'bg-white text-blue-600 border-blue-100 shadow-sm'
+                      : 'text-gray-600 border-transparent hover:bg-gray-100 hover:text-gray-900'
+                  )}
+                >
+                  <Icon size={18} className="mt-0.5 shrink-0" />
+                  <div className="min-w-0 text-left">
+                    <p className="text-sm font-semibold leading-5">{section.title}</p>
+                    <p className="text-xs text-gray-500 mt-1 leading-4">{section.description}</p>
+                  </div>
+                </NavLink>
+              );
+            })}
+          </aside>
+
+          <section className="md:col-span-3 p-5 md:p-8 bg-white">
+            {/* O conteúdo específico de cada subseção é renderizado aqui pelas rotas filhas. */}
+            <Outlet />
+          </section>
         </div>
       </div>
     </div>

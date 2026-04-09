@@ -24,6 +24,10 @@ import ReportViewPage from '@/src/pages/ReportViewPage';
 import SettingsPage from '@/src/pages/SettingsPage';
 import ProfilePage from '@/src/pages/ProfilePage';
 import ActivitiesPage from '@/src/pages/ActivitiesPage';
+import ClinicSettingsPage from '@/src/pages/settings/ClinicSettingsPage';
+import FinancialPixSettingsPage from '@/src/pages/settings/FinancialPixSettingsPage';
+import NotificationsSettingsPage from '@/src/pages/settings/NotificationsSettingsPage';
+import PermissionsSecuritySettingsPage from '@/src/pages/settings/PermissionsSecuritySettingsPage';
 
 export default function AppRoutes() {
   const modularRoutes = getAllRoutes();
@@ -78,7 +82,13 @@ export default function AppRoutes() {
         <Route path="/relatorios" element={<ReportsPage />} />
         <Route path="/relatorios/:type" element={<ReportViewPage />} />
         
-        <Route path="/configuracoes" element={<SettingsPage />} />
+        <Route path="/configuracoes" element={<SettingsPage />}>
+          <Route index element={<Navigate to="/configuracoes/clinica" replace />} />
+          <Route path="clinica" element={<ClinicSettingsPage />} />
+          <Route path="financeiro-pix" element={<FinancialPixSettingsPage />} />
+          <Route path="notificacoes" element={<NotificationsSettingsPage />} />
+          <Route path="permissoes-seguranca" element={<PermissionsSecuritySettingsPage />} />
+        </Route>
         <Route path="/perfil" element={<ProfilePage />} />
       </Route>
 

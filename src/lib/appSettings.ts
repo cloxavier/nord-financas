@@ -3,6 +3,7 @@
  * Nesta fase, ele cuida de:
  * - Financeiro & Pix
  * - Notificações
+ * - Permissões e Segurança
  *
  * Tudo continua centralizado na tabela app_settings para manter simplicidade e baixo risco.
  */
@@ -69,6 +70,38 @@ export const EMPTY_NOTIFICATION_SETTINGS: NotificationSettingsFormData = {
   enable_whatsapp_quick_charge: true,
   reminder_message_template: DEFAULT_REMINDER_MESSAGE_TEMPLATE,
   overdue_message_template: DEFAULT_OVERDUE_MESSAGE_TEMPLATE,
+};
+
+/**
+ * =========================
+ * Permissões e Segurança
+ * =========================
+ */
+
+export interface PermissionSecuritySettingsFormData {
+  require_delete_patient_confirmation: boolean;
+  require_delete_treatment_confirmation: boolean;
+  require_edit_received_payment_confirmation: boolean;
+  require_delete_financial_record_confirmation: boolean;
+  show_sensitive_action_warning: boolean;
+  sensitive_action_guidance_text: string;
+}
+
+export interface PermissionSecuritySettingsRecord extends PermissionSecuritySettingsFormData {
+  id: string | null;
+  updated_at: string | null;
+}
+
+export const DEFAULT_SENSITIVE_ACTION_GUIDANCE_TEXT =
+  'Antes de confirmar uma ação crítica, revise os dados envolvidos e confirme se a alteração é realmente necessária. Operações sensíveis podem impactar histórico, financeiro e rastreabilidade do sistema.';
+
+export const EMPTY_PERMISSION_SECURITY_SETTINGS: PermissionSecuritySettingsFormData = {
+  require_delete_patient_confirmation: true,
+  require_delete_treatment_confirmation: true,
+  require_edit_received_payment_confirmation: true,
+  require_delete_financial_record_confirmation: true,
+  show_sensitive_action_warning: true,
+  sensitive_action_guidance_text: DEFAULT_SENSITIVE_ACTION_GUIDANCE_TEXT,
 };
 
 /**
@@ -280,6 +313,68 @@ export async function saveNotificationSettings(
       emptyToNull(values.reminder_message_template) ?? DEFAULT_REMINDER_MESSAGE_TEMPLATE,
     overdue_message_template:
       emptyToNull(values.overdue_message_template) ?? DEFAULT_OVERDUE_MESSAGE_TEMPLATE,
+  };
+
+  return upsertLatestAppSettings(payload, currentId);
+}
+
+/**
+ * =========================
+ * Permissões e Segurança
+ * =========================
+ */
+
+export async function getPermissionSecuritySettings(): Promise<PermissionSecuritySettingsRecord> {
+  const data = await getLatestAppSettingsRecord();
+
+  if (!data) {
+    return {
+      id: null,
+      updated_at: null,
+      ...EMPTY_PERMISSION_SECURITY_SETTINGS,
+    };
+  }
+
+  return {
+    id: data.id,
+    updated_at: data.updated_at ?? null,
+    require_delete_patient_confirmation: booleanOrDefault(
+      data.require_delete_patient_confirmation,
+      true
+    ),
+    require_delete_treatment_confirmation: booleanOrDefault(
+      data.require_delete_treatment_confirmation,
+      true
+    ),
+    require_edit_received_payment_confirmation: booleanOrDefault(
+      data.require_edit_received_payment_confirmation,
+      true
+    ),
+    require_delete_financial_record_confirmation: booleanOrDefault(
+      data.require_delete_financial_record_confirmation,
+      true
+    ),
+    show_sensitive_action_warning: booleanOrDefault(
+      data.show_sensitive_action_warning,
+      true
+    ),
+    sensitive_action_guidance_text:
+      nullToEmpty(data.sensitive_action_guidance_text) || DEFAULT_SENSITIVE_ACTION_GUIDANCE_TEXT,
+  };
+}
+
+export async function savePermissionSecuritySettings(
+  values: PermissionSecuritySettingsFormData,
+  currentId?: string | null
+): Promise<{ id: string; updated_at: string | null }> {
+  const payload = {
+    require_delete_patient_confirmation: values.require_delete_patient_confirmation,
+    require_delete_treatment_confirmation: values.require_delete_treatment_confirmation,
+    require_edit_received_payment_confirmation: values.require_edit_received_payment_confirmation,
+    require_delete_financial_record_confirmation: values.require_delete_financial_record_confirmation,
+    show_sensitive_action_warning: values.show_sensitive_action_warning,
+    sensitive_action_guidance_text:
+      emptyToNull(values.sensitive_action_guidance_text) ?? DEFAULT_SENSITIVE_ACTION_GUIDANCE_TEXT,
   };
 
   return upsertLatestAppSettings(payload, currentId);

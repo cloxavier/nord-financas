@@ -35,10 +35,10 @@ export const settingsSections: SettingsSection[] = [
   icon: Bell,
 },
   {
-    key: 'permissoes-seguranca',
-    title: 'Permissões e Segurança',
-    description: 'Área preparada para regras de acesso e ações sensíveis, sem termos técnicos para o usuário.',
-    path: '/configuracoes/permissoes-seguranca',
-    icon: Shield,
-  },
+  key: 'permissoes-seguranca',
+  title: 'Permissões e Segurança',
+  description: 'Configure confirmações reforçadas e a base de segurança para ações sensíveis.',
+  path: '/configuracoes/permissoes-seguranca',
+  icon: Shield,
+},
 ];

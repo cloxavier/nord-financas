@@ -5,7 +5,7 @@ import {
   PublicRoute,
   PendingApprovalRoute,
   BlockedUserRoute,
-  ManagerOnlyRoute,
+  PermissionRoute,
 } from '@/src/components/RouteGuards';
 import AppLayout from '@/src/components/AppLayout';
 import { getAllRoutes } from './moduleRegistry';
@@ -93,9 +93,9 @@ export default function AppRoutes() {
         <Route
           path="/usuarios"
           element={
-            <ManagerOnlyRoute>
+            <PermissionRoute permission="users_manage">
               <UserAccessManagementPage />
-            </ManagerOnlyRoute>
+            </PermissionRoute>
           }
         />
 
@@ -122,7 +122,14 @@ export default function AppRoutes() {
         <Route path="/relatorios" element={<ReportsPage />} />
         <Route path="/relatorios/:type" element={<ReportViewPage />} />
 
-        <Route path="/configuracoes" element={<SettingsPage />}>
+        <Route
+          path="/configuracoes"
+          element={
+            <PermissionRoute permission="settings_manage">
+              <SettingsPage />
+            </PermissionRoute>
+          }
+        >
           <Route index element={<Navigate to="/configuracoes/clinica" replace />} />
           <Route path="clinica" element={<ClinicSettingsPage />} />
           <Route path="financeiro-pix" element={<FinancialPixSettingsPage />} />

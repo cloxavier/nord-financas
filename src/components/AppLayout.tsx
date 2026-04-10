@@ -11,20 +11,20 @@ import { cn } from '../lib/utils';
 import { menuItems } from '../app/navigation';
 
 export default function AppLayout() {
-  const { profile, roleName, roleSlug, signOut } = useAuth();
+  const { profile, roleName, signOut, hasPermission } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const visibleMenuItems = useMemo(() => {
-    return menuItems.filter((item) => {
-      if (!item.visibleForRoleSlugs || item.visibleForRoleSlugs.length === 0) {
-        return true;
-      }
+  return menuItems.filter((item) => {
+    if (!item.requiredPermission) {
+      return true;
+    }
 
-      return roleSlug ? item.visibleForRoleSlugs.includes(roleSlug) : false;
-    });
-  }, [roleSlug]);
+    return hasPermission(item.requiredPermission);
+  });
+ }, [hasPermission]);
 
   const handleSignOut = async () => {
     await signOut();

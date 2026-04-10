@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { PermissionKey } from '../lib/permissions';
 
 function FullScreenLoader() {
   return (
@@ -92,11 +93,17 @@ export function BlockedUserRoute({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Guard temporário para áreas exclusivas do Gestor.
- * A matriz fina de permissões virá depois.
+ * Guard genérico por permissão.
+ * Usa o mesmo fluxo de autenticação/status e só depois valida a permissão.
  */
-export function ManagerOnlyRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, accessStatus, roleSlug } = useAuth();
+export function PermissionRoute({
+  permission,
+  children,
+}: {
+  permission: PermissionKey;
+  children: React.ReactNode;
+}) {
+  const { user, loading, accessStatus, hasPermission } = useAuth();
   const location = useLocation();
 
   if (loading) return <FullScreenLoader />;
@@ -113,7 +120,7 @@ export function ManagerOnlyRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/acesso-bloqueado" replace />;
   }
 
-  if (roleSlug !== 'gestor') {
+  if (!hasPermission(permission)) {
     return <Navigate to="/dashboard" replace />;
   }
 

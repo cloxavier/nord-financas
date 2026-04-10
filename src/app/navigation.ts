@@ -11,12 +11,13 @@ import {
   Shield,
   LucideIcon,
 } from 'lucide-react';
+import { PermissionKey } from '../lib/permissions';
 
 export interface NavItem {
   icon: LucideIcon;
   label: string;
   path: string;
-  visibleForRoleSlugs?: string[];
+  requiredPermission?: PermissionKey;
 }
 
 export const menuItems: NavItem[] = [
@@ -27,7 +28,7 @@ export const menuItems: NavItem[] = [
   { icon: CreditCard, label: 'Parcelas', path: '/parcelas' },
   { icon: Bell, label: 'Cobranças', path: '/cobrancas' },
   { icon: BarChart3, label: 'Relatórios', path: '/relatorios' },
-  { icon: Shield, label: 'Usuários', path: '/usuarios', visibleForRoleSlugs: ['gestor'] },
-  { icon: Settings, label: 'Configurações', path: '/configuracoes' },
+  { icon: Shield, label: 'Usuários', path: '/usuarios', requiredPermission: 'users_manage' },
+  { icon: Settings, label: 'Configurações', path: '/configuracoes', requiredPermission: 'settings_manage' },
   { icon: User, label: 'Perfil', path: '/perfil' },
 ];

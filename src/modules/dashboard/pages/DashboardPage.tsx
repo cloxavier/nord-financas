@@ -3,14 +3,15 @@
  * Esta página fornece uma visão geral da clínica, incluindo estatísticas,
  * atividades recentes e lembretes de cobrança.
  *
- * Etapa 2.4:
- * - Mantém os cards principais clicáveis.
- * - Mantém o bloco de atividades reorganizado.
- * - Mantém o resumo de alertas ligado às configurações de Notificações.
- * - Refina o bloco "Lembretes de Cobrança" com ações mais úteis e clicáveis.
+ * Etapa 3A.2a:
+ * - Aplica permissões reais no dashboard.
+ * - Esconde visão executiva para quem não possui dashboard_executive.
+ * - Esconde lembretes de cobrança para quem não possui collections_view.
+ * - Mantém os cards clicáveis e o bloco de atividades sem regressão.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '@/src/contexts/AuthContext';
 import {
   Users,
   ClipboardList,
@@ -37,6 +38,7 @@ interface DashboardStatCard {
   color: string;
   to: string;
   helperText: string;
+  requiredPermission?: 'dashboard_executive';
 }
 
 interface RecentActivity {
@@ -69,6 +71,11 @@ interface ReminderAction {
 }
 
 export default function DashboardPage() {
+  const { hasPermission } = useAuth();
+
+  const canSeeExecutiveDashboard = hasPermission('dashboard_executive');
+  const canSeeCollections = hasPermission('collections_view');
+
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
@@ -135,6 +142,7 @@ export default function DashboardPage() {
           color: 'bg-purple-500',
           to: '/parcelas',
           helperText: 'Ver parcelas e recebimentos',
+          requiredPermission: 'dashboard_executive',
         },
         {
           label: 'Parcelas em Atraso',
@@ -143,6 +151,7 @@ export default function DashboardPage() {
           color: 'bg-red-500',
           to: '/cobrancas',
           helperText: 'Ver cobranças pendentes',
+          requiredPermission: 'dashboard_executive',
         },
       ]);
 
@@ -254,10 +263,6 @@ export default function DashboardPage() {
       : 'Acompanhar vencimentos próximos';
   }
 
-  /**
-   * Cada lembrete vira uma ação clicável.
-   * Mantemos rotas simples nesta fase para evitar regressão.
-   */
   function getReminderActions(): ReminderAction[] {
     return [
       {
@@ -281,9 +286,6 @@ export default function DashboardPage() {
     ];
   }
 
-  /**
-   * CTA principal do bloco muda conforme o cenário do momento.
-   */
   function getPrimaryReminderCTA() {
     if (reminders.overdue > 0) {
       return {
@@ -319,6 +321,20 @@ export default function DashboardPage() {
     };
   }
 
+  const visibleStats = useMemo(() => {
+    return stats.filter((stat) => {
+      if (!stat.requiredPermission) {
+        return true;
+      }
+
+      if (stat.requiredPermission === 'dashboard_executive') {
+        return canSeeExecutiveDashboard;
+      }
+
+      return true;
+    });
+  }, [stats, canSeeExecutiveDashboard]);
+
   const reminderActions = getReminderActions();
   const primaryReminderCTA = getPrimaryReminderCTA();
 
@@ -332,7 +348,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      {/* Cabeçalho do Dashboard */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
@@ -349,9 +364,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Cards principais clicáveis */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat) => (
+      <div
+        className={cn(
+          'grid grid-cols-1 sm:grid-cols-2 gap-6',
+          visibleStats.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-2'
+        )}
+      >
+        {visibleStats.map((stat) => (
           <Link
             key={stat.label}
             to={stat.to}
@@ -379,8 +398,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Bloco de atividades recentes */}
-        <div className="lg:col-span-2 bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className={cn('bg-white rounded-xl border shadow-sm overflow-hidden', canSeeCollections ? 'lg:col-span-2' : 'lg:col-span-3')}>
           <div className="px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="font-bold text-gray-900">Atividades Recentes</h3>
@@ -403,6 +421,7 @@ export default function DashboardPage() {
               </Link>
             </div>
           </div>
+
           <div className="divide-y">
             {recentActivities.length > 0 ? (
               recentActivities.map((activity) => {
@@ -454,7 +473,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Coluna lateral */}
         <div className="space-y-6">
           <div className="bg-blue-600 rounded-xl p-6 text-white shadow-lg shadow-blue-200">
             <h3 className="font-bold text-lg mb-2">Ações Rápidas</h3>
@@ -479,7 +497,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {notificationPreferences.showDashboardAlertSummary && (
+          {canSeeCollections && notificationPreferences.showDashboardAlertSummary && (
             <div className="bg-white rounded-xl border shadow-sm p-6">
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>

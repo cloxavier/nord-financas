@@ -1,16 +1,18 @@
 /**
  * Contexto de Autenticação.
- * Este arquivo gerencia o estado global de autenticação do usuário, integrando-se com o Supabase Auth
- * e já considerando o novo modelo de acesso:
- * - pending
- * - active
- * - blocked
+ * Agora além do status e cargo, o contexto já expõe permissões do cargo.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { AccessStatus, Profile } from '../types/database';
+import {
+  PermissionKey,
+  PermissionMap,
+  hasPermission as checkPermission,
+  normalizePermissions,
+} from '../lib/permissions';
 
 interface AuthContextType {
   user: User | null;
@@ -19,6 +21,8 @@ interface AuthContextType {
   accessStatus: AccessStatus | null;
   roleName: string;
   roleSlug: string | null;
+  permissions: PermissionMap;
+  hasPermission: (key: PermissionKey) => boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -174,6 +178,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return profile.resolved_role_slug || null;
   }, [profile]);
 
+  const permissions = useMemo<PermissionMap>(() => {
+    return normalizePermissions(profile?.access_role?.permissions_json);
+  }, [profile]);
+
+  const hasPermission = useCallback(
+    (key: PermissionKey) => checkPermission(permissions, key),
+    [permissions]
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -183,6 +196,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         accessStatus,
         roleName,
         roleSlug,
+        permissions,
+        hasPermission,
         signOut,
         refreshProfile,
       }}

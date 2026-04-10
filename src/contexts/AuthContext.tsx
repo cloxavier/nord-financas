@@ -25,10 +25,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/**
- * Mapeia o papel legado para um rótulo amigável.
- * Isso ajuda a manter compatibilidade enquanto migramos o sistema.
- */
 function getLegacyRoleLabel(role: Profile['role']): string {
   switch (role) {
     case 'admin':
@@ -44,9 +40,6 @@ function getLegacyRoleLabel(role: Profile['role']): string {
   }
 }
 
-/**
- * Mapeia o papel legado para um slug amigável.
- */
 function getLegacyRoleSlug(role: Profile['role']): string | null {
   switch (role) {
     case 'admin':
@@ -67,9 +60,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  /**
-   * Busca o perfil do usuário já incluindo o cargo associado em access_roles.
-   */
   const fetchProfile = useCallback(async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -77,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .select(`
           id,
           full_name,
+          email,
           role,
           access_status,
           role_id,
@@ -154,11 +145,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
 
-  /**
-   * Recarrega manualmente o perfil.
-   * perfil.
-   * Útil para a tela de aguardando liberação.
-   */
   const refreshProfile = useCallback(async () => {
     if (!user?.id) {
       setProfile(null);
@@ -173,10 +159,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
-  /**
-   * Se existir usuário autenticado sem profile carregado,
-   * tratamos como pendente por segurança.
-   */
   const accessStatus = useMemo<AccessStatus | null>(() => {
     if (!user) return null;
     return profile?.access_status ?? 'pending';

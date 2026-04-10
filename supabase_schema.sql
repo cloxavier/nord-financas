@@ -1,3 +1,8 @@
+-- ATENÇÃO:
+-- Este arquivo é legado e NÃO representa sozinho o estado atual do banco.
+-- Ele deve ser considerado apenas como base histórica inicial do projeto.
+-- As alterações posteriores foram aplicadas manualmente e devem ser consultadas
+-- na pasta supabase/migrations.
 -- 1. Profiles Table
 CREATE TABLE profiles (
   id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,

@@ -1,0 +1,20 @@
+-- =========================================================
+-- 001 — Financeiro & Pix
+-- =========================================================
+-- REGISTRO HISTÓRICO:
+-- Nesta etapa, a funcionalidade de Financeiro & Pix passou a usar
+-- colunas que já existiam na tabela public.app_settings.
+--
+-- Campos utilizados:
+-- - pix_key
+-- - pix_key_type
+-- - beneficiary_name
+-- - default_payment_instructions
+-- - default_contract_notes
+--
+-- Portanto, esta migration não adiciona novas colunas.
+-- Ela existe apenas para documentar que a feature passou a depender
+-- desses campos como parte oficial do projeto.
+--
+-- IMPORTANTE:
+-- Não há SQL novo de schema para esta etapa.

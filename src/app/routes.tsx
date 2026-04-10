@@ -5,11 +5,11 @@ import {
   PublicRoute,
   PendingApprovalRoute,
   BlockedUserRoute,
+  ManagerOnlyRoute,
 } from '@/src/components/RouteGuards';
 import AppLayout from '@/src/components/AppLayout';
 import { getAllRoutes } from './moduleRegistry';
 
-// Importação das páginas que ainda não foram modularizadas
 import PatientsPage from '@/src/pages/PatientsPage';
 import PatientFormPage from '@/src/pages/PatientFormPage';
 import PatientDetailPage from '@/src/pages/PatientDetailPage';
@@ -29,6 +29,7 @@ import ReportViewPage from '@/src/pages/ReportViewPage';
 import SettingsPage from '@/src/pages/SettingsPage';
 import ProfilePage from '@/src/pages/ProfilePage';
 import ActivitiesPage from '@/src/pages/ActivitiesPage';
+import UserAccessManagementPage from '@/src/pages/UserAccessManagementPage';
 import ClinicSettingsPage from '@/src/pages/settings/ClinicSettingsPage';
 import FinancialPixSettingsPage from '@/src/pages/settings/FinancialPixSettingsPage';
 import NotificationsSettingsPage from '@/src/pages/settings/NotificationsSettingsPage';
@@ -54,7 +55,7 @@ export default function AppRoutes() {
         </React.Fragment>
       ))}
 
-      {/* Rotas especiais por status de acesso - SEM AppLayout */}
+      {/* Rotas especiais por status de acesso - sem AppLayout */}
       <Route
         path="/aguardando-liberacao"
         element={
@@ -73,7 +74,7 @@ export default function AppRoutes() {
         }
       />
 
-      {/* Rotas Protegidas com Layout */}
+      {/* Rotas protegidas com layout */}
       <Route
         element={
           <ProtectedRoute>
@@ -87,9 +88,16 @@ export default function AppRoutes() {
           </React.Fragment>
         ))}
 
-        {/* Rotas Legadas (Ainda não modularizadas) */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/atividades" element={<ActivitiesPage />} />
+        <Route
+          path="/usuarios"
+          element={
+            <ManagerOnlyRoute>
+              <UserAccessManagementPage />
+            </ManagerOnlyRoute>
+          }
+        />
 
         <Route path="/pacientes" element={<PatientsPage />} />
         <Route path="/pacientes/novo" element={<PatientFormPage />} />
@@ -128,7 +136,7 @@ export default function AppRoutes() {
         <Route path="/perfil" element={<ProfilePage />} />
       </Route>
 
-      {/* Outras Rotas Protegidas sem Layout */}
+      {/* Outras rotas protegidas sem layout */}
       {otherProtectedRoutes.map((route) => (
         <React.Fragment key={route.path}>
           <Route

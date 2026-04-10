@@ -24,33 +24,47 @@ export default function RegisterPage() {
       return;
     }
 
-      try {
-        const { error: authError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: fullName,
-            },
-            emailRedirectTo: `${window.location.origin}/login`,
+    try {
+      const { data, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
           },
-        });
+          emailRedirectTo: `${window.location.origin}/login`,
+        },
+      });
 
-        if (authError) throw authError;
+      console.log('REGISTER RESULT:', data);
 
-        setSuccess(true);
-        setTimeout(() => navigate('/login'), 3000);
-      } catch (err: any) {
-          let message = 'Erro ao criar conta. Tente novamente.';
-          if (err.message === 'User already registered') {
-            message = 'Este e-mail já está em uso.';
-          } else if (err.message?.includes('password')) {
-            message = 'A senha deve ter pelo menos 6 caracteres.';
-          }
-          setError(message);
-      } finally {
-        setLoading(false);
+      if (authError) {
+        throw authError;
       }
+
+      setSuccess(true);
+      setTimeout(() => navigate('/login'), 3000);
+    } catch (err: any) {
+      console.error('REGISTER ERROR:', err);
+
+      let message = err?.message || 'Erro ao criar conta. Tente novamente.';
+
+      if (err?.message === 'User already registered') {
+        message = 'Este e-mail já está em uso.';
+      } else if (err?.message?.toLowerCase().includes('password')) {
+        message = 'A senha deve ter pelo menos 6 caracteres.';
+      } else if (err?.message?.toLowerCase().includes('database error')) {
+        message = 'O Supabase retornou erro ao salvar o novo usuário no banco.';
+      } else if (err?.message?.toLowerCase().includes('signup is disabled')) {
+        message = 'O cadastro por e-mail está desabilitado no Supabase.';
+      } else if (err?.message?.toLowerCase().includes('email rate limit exceeded')) {
+        message = 'O Supabase limitou temporariamente o envio de e-mails. Aguarde e tente novamente.';
+      }
+
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (success) {
@@ -61,10 +75,18 @@ export default function RegisterPage() {
             <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
               <UserPlus className="h-6 w-6 text-green-600" />
             </div>
+
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Conta criada!</h2>
-            <p className="text-gray-600 mb-6">
-              Sua conta foi criada com sucesso. Após o login, ela ficará aguardando liberação de um gestor antes do acesso ao sistema.
+
+            <p className="text-gray-600 mb-3">
+              Sua conta foi criada com sucesso.
             </p>
+
+            <p className="text-sm text-gray-500 mb-6 leading-6">
+              Se a confirmação de e-mail estiver habilitada no Supabase, confirme o e-mail antes de fazer login.
+              Depois disso, sua conta ficará aguardando liberação de um gestor antes do acesso ao sistema.
+            </p>
+
             <div className="flex justify-center">
               <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
             </div>
@@ -82,9 +104,11 @@ export default function RegisterPage() {
             <span className="text-white font-bold text-4xl">N</span>
           </div>
         </div>
+
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Criar sua conta
         </h2>
+
         <p className="mt-2 text-center text-sm text-gray-600">
           Solicite acesso ao Nord Finanças
         </p>

@@ -1,3 +1,8 @@
+-- ATENÇÃO:
+-- Este arquivo é legado e NÃO representa sozinho o estado atual do banco.
+-- Ele deve ser considerado apenas como base histórica inicial do projeto.
+-- As alterações posteriores foram aplicadas manualmente e devem ser consultadas
+-- na pasta supabase/migrations.
 -- Function to permanently delete a treatment and all its related records
 -- This is a transactional operation that ensures database integrity.
 -- Only users with 'admin' or 'financeiro' roles can execute this.

@@ -389,11 +389,20 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-              Mostrando {RECENT_ACTIVITIES_LIMIT} mais recentes
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                Mostrando {RECENT_ACTIVITIES_LIMIT} mais recentes
+              </div>
+
+              <Link
+                to="/atividades"
+                className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-white px-3 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors"
+              >
+                Ver histórico completo
+                <ArrowRight size={13} />
+              </Link>
             </div>
           </div>
-
           <div className="divide-y">
             {recentActivities.length > 0 ? (
               recentActivities.map((activity) => {

@@ -3,11 +3,11 @@
  * Esta página fornece uma visão geral da clínica, incluindo estatísticas,
  * atividades recentes e lembretes de cobrança.
  *
- * Etapa 2.3:
+ * Etapa 2.4:
  * - Mantém os cards principais clicáveis.
  * - Mantém o bloco de atividades reorganizado.
- * - Passa a usar as preferências salvas em Notificações
- *   para montar o resumo de alertas no dashboard.
+ * - Mantém o resumo de alertas ligado às configurações de Notificações.
+ * - Refina o bloco "Lembretes de Cobrança" com ações mais úteis e clicáveis.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -19,6 +19,7 @@ import {
   Calendar,
   Loader2,
   ArrowRight,
+  MessageCircle,
 } from 'lucide-react';
 import { formatCurrency, cn } from '@/src/lib/utils';
 import { Link } from 'react-router-dom';
@@ -49,15 +50,22 @@ interface RecentActivity {
 }
 
 interface ReminderState {
-  dueWithinAlertDays: 0 | number;
-  overdue: 0 | number;
-  pendingTreatments: 0 | number;
+  dueWithinAlertDays: number;
+  overdue: number;
+  pendingTreatments: number;
 }
 
 interface DashboardNotificationPreferences {
   dueAlertDays: number;
   showDashboardAlertSummary: boolean;
   enableWhatsappQuickCharge: boolean;
+}
+
+interface ReminderAction {
+  label: string;
+  helperText: string;
+  to: string;
+  dotColor: string;
 }
 
 export default function DashboardPage() {
@@ -85,12 +93,7 @@ export default function DashboardPage() {
     setLoading(true);
 
     try {
-      /**
-       * Busca as preferências salvas em Notificações primeiro,
-       * para o dashboard obedecer a configuração do usuário.
-       */
       const notificationSettings = await getNotificationSettings();
-
       const safeAlertDays = Math.max(0, Number(notificationSettings.due_alert_days || '3'));
 
       setNotificationPreferences({
@@ -199,9 +202,6 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
 
-      /**
-       * Mantém fallback seguro se houver falha ao ler configurações.
-       */
       setNotificationPreferences({
         dueAlertDays: 3,
         showDashboardAlertSummary: true,
@@ -236,9 +236,6 @@ export default function DashboardPage() {
     };
   }
 
-  /**
-   * Monta o texto principal do primeiro lembrete com base em "dias de antecedência".
-   */
   function getUpcomingReminderLabel() {
     if (notificationPreferences.dueAlertDays === 0) {
       return `${reminders.dueWithinAlertDays} parcelas vencem hoje`;
@@ -251,14 +248,79 @@ export default function DashboardPage() {
     return `${reminders.dueWithinAlertDays} parcelas vencem em até ${notificationPreferences.dueAlertDays} dias`;
   }
 
-  /**
-   * Texto auxiliar muda conforme a ação rápida de WhatsApp estiver habilitada ou não.
-   */
   function getUpcomingReminderHelperText() {
     return notificationPreferences.enableWhatsappQuickCharge
       ? 'Preparar cobrança assistida por WhatsApp'
       : 'Acompanhar vencimentos próximos';
   }
+
+  /**
+   * Cada lembrete vira uma ação clicável.
+   * Mantemos rotas simples nesta fase para evitar regressão.
+   */
+  function getReminderActions(): ReminderAction[] {
+    return [
+      {
+        label: getUpcomingReminderLabel(),
+        helperText: getUpcomingReminderHelperText(),
+        to: notificationPreferences.enableWhatsappQuickCharge ? '/cobrancas' : '/parcelas',
+        dotColor: reminders.dueWithinAlertDays > 0 ? 'bg-yellow-500' : 'bg-gray-300',
+      },
+      {
+        label: `${reminders.overdue} parcelas em atraso`,
+        helperText: 'Revisar cobranças pendentes',
+        to: '/cobrancas',
+        dotColor: reminders.overdue > 0 ? 'bg-red-600' : 'bg-gray-300',
+      },
+      {
+        label: `${reminders.pendingTreatments} tratamentos aguardando aprovação`,
+        helperText: 'Revisar orçamentos pendentes',
+        to: '/tratamentos',
+        dotColor: reminders.pendingTreatments > 0 ? 'bg-yellow-500' : 'bg-gray-300',
+      },
+    ];
+  }
+
+  /**
+   * CTA principal do bloco muda conforme o cenário do momento.
+   */
+  function getPrimaryReminderCTA() {
+    if (reminders.overdue > 0) {
+      return {
+        label: 'Revisar cobranças em atraso',
+        to: '/cobrancas',
+      };
+    }
+
+    if (reminders.dueWithinAlertDays > 0 && notificationPreferences.enableWhatsappQuickCharge) {
+      return {
+        label: 'Preparar cobranças do período',
+        to: '/cobrancas',
+      };
+    }
+
+    if (reminders.dueWithinAlertDays > 0) {
+      return {
+        label: 'Acompanhar vencimentos',
+        to: '/parcelas',
+      };
+    }
+
+    if (reminders.pendingTreatments > 0) {
+      return {
+        label: 'Ver tratamentos pendentes',
+        to: '/tratamentos',
+      };
+    }
+
+    return {
+      label: 'Abrir cobranças',
+      to: '/cobrancas',
+    };
+  }
+
+  const reminderActions = getReminderActions();
+  const primaryReminderCTA = getPrimaryReminderCTA();
 
   if (loading) {
     return (
@@ -408,64 +470,56 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Resumo de alertas agora obedece às configurações de Notificações */}
           {notificationPreferences.showDashboardAlertSummary && (
             <div className="bg-white rounded-xl border shadow-sm p-6">
-              <h3 className="font-bold text-gray-900 mb-4">Lembretes de Cobrança</h3>
-
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      'w-2 h-2 rounded-full mt-1.5 shrink-0',
-                      reminders.dueWithinAlertDays > 0 ? 'bg-yellow-500' : 'bg-gray-300'
-                    )}
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {getUpcomingReminderLabel()}
-                    </p>
-                    <p className="text-xs text-gray-500">{getUpcomingReminderHelperText()}</p>
-                  </div>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="font-bold text-gray-900">Lembretes de Cobrança</h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Acompanhe vencimentos próximos, atrasos e pendências que merecem atenção.
+                  </p>
                 </div>
 
-                <div className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      'w-2 h-2 rounded-full mt-1.5 shrink-0',
-                      reminders.overdue > 0 ? 'bg-red-600' : 'bg-gray-300'
-                    )}
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {reminders.overdue} parcelas em atraso
-                    </p>
-                    <p className="text-xs text-gray-500">Revisar cobranças pendentes</p>
+                {notificationPreferences.enableWhatsappQuickCharge && (
+                  <div className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700 shrink-0">
+                    <MessageCircle size={12} />
+                    WhatsApp pronto
                   </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      'w-2 h-2 rounded-full mt-1.5 shrink-0',
-                      reminders.pendingTreatments > 0 ? 'bg-yellow-500' : 'bg-gray-300'
-                    )}
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {reminders.pendingTreatments} tratamentos aguardando aprovação
-                    </p>
-                    <p className="text-xs text-gray-500">Revisar orçamentos pendentes</p>
-                  </div>
-                </div>
+                )}
               </div>
 
-              <Link
-                to="/cobrancas"
-                className="block w-full mt-6 py-2 text-center text-sm font-semibold text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors"
-              >
-                Ver Cobranças
-              </Link>
+              <div className="space-y-3">
+                {reminderActions.map((item) => (
+                  <Link
+                    key={item.label}
+                    to={item.to}
+                    className="flex items-start gap-3 rounded-lg border px-3 py-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', item.dotColor)} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{item.helperText}</p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Link
+                  to={primaryReminderCTA.to}
+                  className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  {primaryReminderCTA.label}
+                  <ArrowRight size={16} />
+                </Link>
+
+                <Link
+                  to="/parcelas"
+                  className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-blue-100 text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors"
+                >
+                  Abrir parcelas
+                </Link>
+              </div>
             </div>
           )}
         </div>

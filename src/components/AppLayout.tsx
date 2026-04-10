@@ -17,7 +17,7 @@ import { cn } from '../lib/utils';
 import { menuItems } from '../app/navigation';
 
 export default function AppLayout() {
-  const { profile, signOut } = useAuth(); // Dados do perfil e função de logout do contexto de autenticação
+  const { profile, roleName, signOut } = useAuth(); // Dados do perfil e função de logout do contexto de autenticação
   const location = useLocation(); // Hook para obter a rota atual
   const navigate = useNavigate(); // Hook para navegação programática
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Estado para controlar a visibilidade do menu no mobile
@@ -109,7 +109,7 @@ export default function AppLayout() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-gray-900 truncate">{profile?.full_name || 'Usuário'}</p>
-                <p className="text-xs text-gray-500 capitalize">{profile?.role || 'Acessando...'}</p>
+                <p className="text-xs text-gray-500">{roleName || 'Sem cargo definido'}</p>
               </div>
             </div>
             <button
@@ -138,7 +138,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-4">
             <div className="text-right">
               <p className="text-sm font-medium text-gray-900">{profile?.full_name}</p>
-              <p className="text-xs text-gray-500 capitalize">{profile?.role}</p>
+              <p className="text-xs text-gray-500">{roleName || 'Sem cargo definido'}</p>
             </div>
           </div>
         </header>

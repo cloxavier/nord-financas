@@ -63,7 +63,7 @@ export default function RegisterPage() {
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Conta criada!</h2>
             <p className="text-gray-600 mb-6">
-              Sua conta foi criada com sucesso. Você será redirecionado para o dashboard em instantes.
+              Sua conta foi criada com sucesso. Após o login, ela ficará aguardando liberação de um gestor antes do acesso ao sistema.
             </p>
             <div className="flex justify-center">
               <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
@@ -86,7 +86,7 @@ export default function RegisterPage() {
           Criar sua conta
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Junte-se ao Nord Finanças
+          Solicite acesso ao Nord Finanças
         </p>
       </div>
 

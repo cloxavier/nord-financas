@@ -1,61 +1,126 @@
 /**
  * Guardas de Rota (Route Guards).
- * Este arquivo contém componentes para proteger ou restringir o acesso a determinadas rotas da aplicação.
+ (Route Guards).
+ * Agora as rotas consideram:
+ * - usuário não autenticado
+ * - usuário pendente
+ * - usuário ativo
+ * - usuário bloqueado
  */
 
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+function FullScreenLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+    </div>
+  );
+}
+
+function getStatusRedirect(accessStatus: 'pending' | 'active' | 'blocked' | null) {
+  if (accessStatus === 'blocked') return '/acesso-bloqueado';
+  if (accessStatus === 'pending') return '/aguardando-liberacao';
+  return '/dashboard';
+}
+
 /**
- * Componente ProtectedRoute: Protege rotas que exigem autenticação.
- * Se o usuário não estiver logado, ele é redirecionado para a página de login.
- * @param children Os componentes que devem ser renderizados se o acesso for permitido.
+ * Rotas públicas:
+ * - se não estiver logado, pode acessar
+ * - se estiver logado, vai para a tela correta conforme o status
  */
-export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth(); // Obtém o estado de autenticação do contexto
-  const location = useLocation(); // Obtém a localização atual para redirecionamento posterior
+export function PublicRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading, accessStatus } = useAuth();
 
-  // Enquanto a autenticação está sendo verificada, exibe um spinner de carregamento
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
-  // Se não houver usuário autenticado, redireciona para o login, salvando a rota de origem
-  if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+  if (user) {
+    return <Navigate to={getStatusRedirect(accessStatus)} replace />;
   }
 
-  // Se estiver autenticado, renderiza os componentes filhos
   return <>{children}</>;
 }
 
 /**
- * Componente PublicRoute: Restringe o acesso a rotas públicas (como Login) para usuários já logados.
- * Se o usuário já estiver logado, ele é redirecionado para o dashboard.
- * @param children Os componentes que devem ser renderizados (ex: formulário de login).
+ * Rotas protegidas do sistema principal:
+ * - exigem login
+ * - exigem status ativo
  */
-export function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+export function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading, accessStatus } = useAuth();
+  const location = useLocation();
 
-  // Exibe spinner enquanto verifica a sessão
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
-  // Se já houver um usuário autenticado, redireciona para o dashboard
-  if (user) {
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (accessStatus === 'pending') {
+    return <Navigate to="/aguardando-liberacao" replace />;
+  }
+
+  if (accessStatus === 'blocked') {
+    return <Navigate to="/acesso-bloqueado" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+/**
+ * Tela acessível apenas para usuários pendentes.
+ */
+export function PendingApprovalRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading, accessStatus } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return <FullScreenLoader />;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (accessStatus === 'blocked') {
+    return <Navigate to="/acesso-bloqueado" replace />;
+  }
+
+  if (accessStatus === 'active') {
     return <Navigate to="/dashboard" replace />;
   }
 
-  // Se não estiver logado, permite o acesso à página pública
+  return <>{children}</>;
+}
+
+/**
+ * Tela acessível apenas para usuários bloqueados.
+ */
+export function BlockedUserRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading, accessStatus } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return <FullScreenLoader />;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (accessStatus === 'pending') {
+    return <Navigate to="/aguardando-liberacao" replace />;
+  }
+
+  if (accessStatus === 'active') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return <>{children}</>;
 }

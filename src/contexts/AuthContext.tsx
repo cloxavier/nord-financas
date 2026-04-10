@@ -1,43 +1,135 @@
 /**
  * Contexto de Autenticação.
- * Este arquivo gerencia o estado global de autenticação do usuário, integrando-se com o Supabase Auth.
+ * Este arquivo gerencia o estado global de autenticação do usuário, integrando-se com o Supabase Auth
+ * e já considerando o novo modelo de acesso:
+ * - pending
+ * - active
+ * - blocked
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { Profile } from '../types/database';
+import { AccessStatus, Profile } from '../types/database';
 
-/**
- * Interface que define a estrutura do valor do contexto de autenticação.
- */
 interface AuthContextType {
-  user: User | null;       // Dados básicos do usuário autenticado no Supabase
-  profile: Profile | null; // Perfil detalhado do usuário (da tabela 'profiles')
-  loading: boolean;        // Estado de carregamento inicial da autenticação
-  signOut: () => Promise<void>; // Função para deslogar o usuário
+  user: User | null;
+  profile: Profile | null;
+  loading: boolean;
+  accessStatus: AccessStatus | null;
+  roleName: string;
+  roleSlug: string | null;
+  signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
-/**
- * Criação do contexto de autenticação.
- */
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /**
- * Provedor de Autenticação (AuthProvider).
- * Envolve a aplicação para fornecer acesso ao estado de autenticação.
+ * Mapeia o papel legado para um rótulo amigável.
+ * Isso ajuda a manter compatibilidade enquanto migramos o sistema.
  */
+function getLegacyRoleLabel(role: Profile['role']): string {
+  switch (role) {
+    case 'admin':
+      return 'Gestor';
+    case 'financeiro':
+      return 'Financeiro';
+    case 'dentista':
+      return 'Dentista';
+    case 'recepcao':
+      return 'Secretária';
+    default:
+      return 'Sem cargo definido';
+  }
+}
+
+/**
+ * Mapeia o papel legado para um slug amigável.
+ */
+function getLegacyRoleSlug(role: Profile['role']): string | null {
+  switch (role) {
+    case 'admin':
+      return 'gestor';
+    case 'financeiro':
+      return 'financeiro';
+    case 'dentista':
+      return 'dentista';
+    case 'recepcao':
+      return 'secretaria';
+    default:
+      return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Busca o perfil do usuário já incluindo o cargo associado em access_roles.
+   */
+  const fetchProfile = useCallback(async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select(`
+          id,
+          full_name,
+          role,
+          access_status,
+          role_id,
+          approved_by,
+          approved_at,
+          created_at,
+          updated_at,
+          access_role:access_roles (
+            id,
+            name,
+            slug,
+            description,
+            is_system_role,
+            is_active,
+            permissions_json,
+            financial_scope_json,
+            created_at,
+            updated_at
+          )
+        `)
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        setProfile(null);
+        return;
+      }
+
+      const resolvedRoleName = data.access_role?.name || getLegacyRoleLabel(data.role);
+      const resolvedRoleSlug = data.access_role?.slug || getLegacyRoleSlug(data.role);
+
+      const normalizedProfile: Profile = {
+        ...data,
+        access_role: data.access_role ?? null,
+        resolved_role_name: resolvedRoleName,
+        resolved_role_slug: resolvedRoleSlug,
+      };
+
+      setProfile(normalizedProfile);
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      setProfile(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    /**
-     * Obtém a sessão atual ao carregar o componente.
-     */
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+
       if (session?.user) {
         fetchProfile(session.user.id);
       } else {
@@ -45,12 +137,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    /**
-     * Escuta mudanças no estado de autenticação (login, logout).
-     */
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+
       if (session?.user) {
+        setLoading(true);
         fetchProfile(session.user.id);
       } else {
         setProfile(null);
@@ -58,54 +151,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Limpeza da inscrição ao desmontar o componente
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchProfile]);
 
   /**
-   * Busca os dados do perfil do usuário na tabela 'profiles'.
-   * @param userId ID do usuário no Supabase Auth.
+   * Recarrega manualmente o perfil.
+   * perfil.
+   * Útil para a tela de aguardando liberação.
    */
-  async function fetchProfile(userId: string) {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) throw error;
-      setProfile(data);
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-    } finally {
-      setLoading(false);
+  const refreshProfile = useCallback(async () => {
+    if (!user?.id) {
+      setProfile(null);
+      return;
     }
-  }
 
-  /**
-   * Realiza o logout do usuário no Supabase.
-   */
+    setLoading(true);
+    await fetchProfile(user.id);
+  }, [fetchProfile, user]);
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
+  /**
+   * Se existir usuário autenticado sem profile carregado,
+   * tratamos como pendente por segurança.
+   */
+  const accessStatus = useMemo<AccessStatus | null>(() => {
+    if (!user) return null;
+    return profile?.access_status ?? 'pending';
+  }, [profile, user]);
+
+  const roleName = useMemo(() => {
+    if (!profile) return 'Sem cargo definido';
+    return profile.resolved_role_name || 'Sem cargo definido';
+  }, [profile]);
+
+  const roleSlug = useMemo(() => {
+    if (!profile) return null;
+    return profile.resolved_role_slug || null;
+  }, [profile]);
+
   return (
-    // Disponibiliza as informações de autenticação para os componentes filhos
-    <AuthContext.Provider value={{ user, profile, loading, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        loading,
+        accessStatus,
+        roleName,
+        roleSlug,
+        signOut,
+        refreshProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 }
 
-/**
- * Hook personalizado para acessar o contexto de autenticação de forma simplificada.
- * @throws Erro se usado fora de um AuthProvider.
- */
 export function useAuth() {
   const context = useContext(AuthContext);
+
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
+
   return context;
 }

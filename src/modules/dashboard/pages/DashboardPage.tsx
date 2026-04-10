@@ -3,10 +3,12 @@
  * Esta página fornece uma visão geral da clínica, incluindo estatísticas,
  * atividades recentes e lembretes de cobrança.
  *
- * Etapa 2.1:
- * - Os cards principais passam a ser clicáveis.
- * - Cada card direciona para a tela equivalente do menu.
- * - Nesta fase ainda não aplicamos filtros automáticos nas telas de destino.
+ * Etapa 2.2:
+ * - Mantém os cards principais clicáveis.
+ * - Compacta e reorganiza o bloco de Atividades Recentes.
+ * - Mostra de forma explícita apenas as 5 mais recentes.
+ * - Remove temporariamente o link "Ver todas" para evitar rota morta
+ *   até criarmos a página própria de histórico.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -26,8 +28,13 @@ import { getDashboardMetrics } from '@/src/lib/financialMetrics';
 import { resolvePatientName } from '@/src/lib/businessRules';
 
 /**
+ * Quantidade de atividades exibidas no dashboard.
+ * Mantida em constante para facilitar mudança futura.
+ */
+const RECENT_ACTIVITIES_LIMIT = 5;
+
+/**
  * Tipo dos cards principais do dashboard.
- * Adicionamos "to" para tornar a navegação explícita.
  */
 interface DashboardStatCard {
   label: string;
@@ -52,7 +59,6 @@ interface RecentActivity {
 }
 
 export default function DashboardPage() {
-  // Estados para gerenciar o carregamento, estatísticas, atividades e lembretes
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
@@ -62,7 +68,6 @@ export default function DashboardPage() {
     pendingTreatments: 0,
   });
 
-  // Carrega os dados do dashboard ao montar o componente
   useEffect(() => {
     fetchDashboardData();
   }, []);
@@ -74,10 +79,8 @@ export default function DashboardPage() {
     setLoading(true);
 
     try {
-      // 1. Busca métricas centralizadas
       const metrics = await getDashboardMetrics();
 
-      // 2. Busca atividades recentes (logs, tratamentos, pacientes)
       const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
         await Promise.all([
           supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(10),
@@ -85,10 +88,6 @@ export default function DashboardPage() {
           supabase.from('patients').select('*').order('created_at', { ascending: false }).limit(10),
         ]);
 
-      /**
-       * Atualiza os cards de estatísticas.
-       * Nesta fase, cada card recebe a rota equivalente do menu principal.
-       */
       setStats([
         {
           label: 'Total de Pacientes',
@@ -124,10 +123,8 @@ export default function DashboardPage() {
         },
       ]);
 
-      // Normaliza e combina diferentes tipos de atividades para a lista "Atividades Recentes"
       const normalizedActivities: RecentActivity[] = [];
 
-      // Processa Logs de Auditoria
       auditLogs?.forEach((log) => {
         normalizedActivities.push({
           id: `audit-${log.id}`,
@@ -144,7 +141,6 @@ export default function DashboardPage() {
         });
       });
 
-      // Processa Novos Tratamentos
       recentTreatments?.forEach((t) => {
         normalizedActivities.push({
           id: `treatment-${t.id}`,
@@ -157,7 +153,6 @@ export default function DashboardPage() {
         });
       });
 
-      // Processa Novos Pacientes
       recentPatients?.forEach((p) => {
         normalizedActivities.push({
           id: `patient-${p.id}`,
@@ -170,14 +165,12 @@ export default function DashboardPage() {
         });
       });
 
-      // Ordena por data decrescente e pega as 5 mais recentes
       setRecentActivities(
         normalizedActivities
           .sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime())
-          .slice(0, 5)
+          .slice(0, RECENT_ACTIVITIES_LIMIT)
       );
 
-      // Atualiza os lembretes da barra lateral
       setReminders({
         dueToday: metrics.dueTodayCount,
         overdue: metrics.overdueCount,
@@ -190,7 +183,33 @@ export default function DashboardPage() {
     }
   }
 
-  // Renderiza tela de carregamento se os dados ainda não estiverem prontos
+  /**
+   * Retorna cor e ícone da atividade para manter visual consistente.
+   */
+  function getActivityVisual(type: RecentActivity['type']) {
+    if (type === 'payment') {
+      return {
+        bg: 'bg-green-100',
+        text: 'text-green-700',
+        icon: TrendingUp,
+      };
+    }
+
+    if (type === 'treatment') {
+      return {
+        bg: 'bg-blue-100',
+        text: 'text-blue-700',
+        icon: ClipboardList,
+      };
+    }
+
+    return {
+      bg: 'bg-gray-100',
+      text: 'text-gray-700',
+      icon: Users,
+    };
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -210,7 +229,6 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Exibição do Mês Atual */}
         <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border shadow-sm">
           <Calendar size={18} className="text-gray-400" />
           <span className="text-sm font-medium text-gray-700">
@@ -219,7 +237,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Grade de Estatísticas (Cards clicáveis) */}
+      {/* Cards principais clicáveis */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat) => (
           <Link
@@ -249,74 +267,74 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Seção de Atividades Recentes */}
+        {/* Bloco de atividades recentes reorganizado */}
         <div className="lg:col-span-2 bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b flex items-center justify-between">
-            <h3 className="font-bold text-gray-900">Atividades Recentes</h3>
-            <Link
-              to="/atividades"
-              className="text-sm text-blue-600 font-semibold hover:underline"
-            >
-              Ver todas
-            </Link>
+          <div className="px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-gray-900">Atividades Recentes</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Resumo rápido das últimas movimentações registradas no sistema.
+              </p>
+            </div>
+
+            <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+              Mostrando {RECENT_ACTIVITIES_LIMIT} mais recentes
+            </div>
           </div>
 
           <div className="divide-y">
             {recentActivities.length > 0 ? (
-              recentActivities.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-4">
-                    {/* Ícone dinâmico baseado no tipo de atividade */}
-                    <div
-                      className={cn(
-                        'w-10 h-10 rounded-full flex items-center justify-center',
-                        activity.type === 'payment'
-                          ? 'bg-green-100 text-green-700'
-                          : activity.type === 'treatment'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-gray-100 text-gray-700'
-                      )}
-                    >
-                      {activity.type === 'payment' ? (
-                        <TrendingUp size={18} />
-                      ) : activity.type === 'treatment' ? (
-                        <ClipboardList size={18} />
-                      ) : (
-                        <Users size={18} />
-                      )}
+              recentActivities.map((activity) => {
+                const visual = getActivityVisual(activity.type);
+                const ActivityIcon = visual.icon;
+
+                return (
+                  <div
+                    key={activity.id}
+                    className="px-6 py-3.5 flex items-center justify-between gap-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div
+                        className={cn(
+                          'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
+                          visual.bg,
+                          visual.text
+                        )}
+                      >
+                        <ActivityIcon size={16} />
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">
+                          {activity.patient}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5 truncate">
+                          {activity.description}
+                        </p>
+                      </div>
                     </div>
 
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{activity.patient}</p>
-                      <p className="text-xs text-gray-500">{activity.description}</p>
+                    <div className="text-right shrink-0">
+                      {activity.amount > 0 && (
+                        <p className="text-sm font-bold text-gray-900">
+                          {formatCurrency(activity.amount)}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-0.5">{activity.date}</p>
                     </div>
                   </div>
-
-                  <div className="text-right">
-                    {/* Exibe o valor se for maior que zero */}
-                    {activity.amount > 0 && (
-                      <p className="text-sm font-bold text-gray-900">
-                        {formatCurrency(activity.amount)}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-400">{activity.date}</p>
-                  </div>
-                </div>
-              ))
+                );
+              })
             ) : (
-              <div className="px-6 py-12 text-center">
-                <p className="text-gray-500">Nenhuma atividade recente encontrada.</p>
+              <div className="px-6 py-10 text-center">
+                <p className="text-sm text-gray-500">Nenhuma atividade recente encontrada.</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Coluna Lateral: Ações Rápidas e Lembretes */}
+        {/* Coluna lateral */}
         <div className="space-y-6">
-          {/* Card de Ações Rápidas */}
           <div className="bg-blue-600 rounded-xl p-6 text-white shadow-lg shadow-blue-200">
             <h3 className="font-bold text-lg mb-2">Ações Rápidas</h3>
             <p className="text-blue-100 text-sm mb-6">
@@ -340,12 +358,10 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card de Lembretes de Cobrança */}
           <div className="bg-white rounded-xl border shadow-sm p-6">
             <h3 className="font-bold text-gray-900 mb-4">Lembretes de Cobrança</h3>
 
             <div className="space-y-4">
-              {/* Lembrete: Vencendo Hoje */}
               <div className="flex items-start gap-3">
                 <div
                   className={cn(
@@ -361,7 +377,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Lembrete: Em Atraso */}
               <div className="flex items-start gap-3">
                 <div
                   className={cn(
@@ -377,7 +392,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Lembrete: Tratamentos Pendentes */}
               <div className="flex items-start gap-3">
                 <div
                   className={cn(
@@ -394,7 +408,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Link para a página de cobranças */}
             <Link
               to="/cobrancas"
               className="block w-full mt-6 py-2 text-center text-sm font-semibold text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors"

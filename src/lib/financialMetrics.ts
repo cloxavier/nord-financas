@@ -4,46 +4,98 @@
  */
 
 import { supabase } from './supabase';
-import { isInstallmentOverdue, resolvePatientName } from './businessRules';
+import { isInstallmentOverdue } from './businessRules';
+
+/**
+ * Calcula a diferença em dias entre hoje e a data de vencimento.
+ * Retorna:
+ * - 0 para hoje
+ * - positivo para datas futuras
+ * - negativo para datas passadas
+ */
+function getInstallmentDayOffset(dueDateStr: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const dueDate = new Date(dueDateStr);
+  dueDate.setHours(0, 0, 0, 0);
+
+  const diffMs = dueDate.getTime() - today.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
 
 /**
  * Busca as métricas do Dashboard de forma centralizada.
+ * Agora aceita "alertDays" para calcular vencimentos próximos
+ * com base nas preferências salvas em Notificações.
  */
-export async function getDashboardMetrics() {
+export async function getDashboardMetrics(alertDays = 3) {
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+  const safeAlertDays = Number.isFinite(alertDays) && alertDays >= 0 ? alertDays : 3;
 
   const [
     { count: patientCount },
     { count: activeTreatmentsCount },
     { data: monthlyRevenue },
     { data: installments },
-    { count: pendingTreatmentsCount }
+    { count: pendingTreatmentsCount },
   ] = await Promise.all([
     // 1. Total de Pacientes
     supabase.from('patients').select('*', { count: 'exact', head: true }),
+
     // 2. Tratamentos Ativos
-    supabase.from('treatments').select('*', { count: 'exact', head: true }).in('status', ['pending', 'in_progress']),
+    supabase
+      .from('treatments')
+      .select('*', { count: 'exact', head: true })
+      .in('status', ['pending', 'in_progress']),
+
     // 3. Receita Mensal
-    supabase.from('installments')
+    supabase
+      .from('installments')
       .select('amount_paid')
       .eq('status', 'paid')
       .gte('payment_date', startOfMonth.toISOString().split('T')[0])
       .lte('payment_date', endOfMonth.toISOString().split('T')[0]),
-    // 4. Todas as parcelas pendentes para cálculo de atraso (canonical)
-    supabase.from('installments')
+
+    // 4. Parcelas não pagas/canceladas para cálculos de cobrança
+    supabase
+      .from('installments')
       .select('id, amount, amount_paid, status, due_date')
       .not('status', 'in', '("paid","cancelled")'),
-    // 5. Tratamentos Pendentes
-    supabase.from('treatments').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+
+    // 5. Tratamentos pendentes
+    supabase
+      .from('treatments')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending'),
   ]);
 
-  // Aplica a regra canônica de atraso
-  const overdueInstallments = (installments || []).filter(isInstallmentOverdue);
-  const dueTodayCount = (installments || []).filter(i => i.due_date === today.toISOString().split('T')[0]).length;
-  const totalMonthlyRevenue = monthlyRevenue?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0;
+  const pendingInstallments = installments || [];
+
+  const overdueInstallments = pendingInstallments.filter(isInstallmentOverdue);
+
+  /**
+   * Parcela "próxima do vencimento" nesta fase significa:
+   * - não está em atraso
+   * - vence hoje ou nos próximos X dias
+   */
+  const dueWithinAlertDaysCount = pendingInstallments.filter((installment) => {
+    if (isInstallmentOverdue(installment)) return false;
+
+    const dayOffset = getInstallmentDayOffset(installment.due_date);
+    return dayOffset >= 0 && dayOffset <= safeAlertDays;
+  }).length;
+
+  const dueTodayCount = pendingInstallments.filter((installment) => {
+    const dayOffset = getInstallmentDayOffset(installment.due_date);
+    return !isInstallmentOverdue(installment) && dayOffset === 0;
+  }).length;
+
+  const totalMonthlyRevenue =
+    monthlyRevenue?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0;
 
   return {
     patientCount: patientCount || 0,
@@ -51,7 +103,9 @@ export async function getDashboardMetrics() {
     monthlyRevenue: totalMonthlyRevenue,
     overdueCount: overdueInstallments.length,
     dueTodayCount,
-    pendingTreatmentsCount: pendingTreatmentsCount || 0
+    dueWithinAlertDaysCount,
+    alertDays: safeAlertDays,
+    pendingTreatmentsCount: pendingTreatmentsCount || 0,
   };
 }
 
@@ -67,19 +121,21 @@ export async function getCollectionsSummary() {
   if (error) throw error;
 
   const overdueInstallments = (installments || []).filter(isInstallmentOverdue);
-  
+
   const totalOverdueAmount = overdueInstallments.reduce((sum, i) => {
     const remaining = (i.amount || 0) - (i.amount_paid || 0);
     return sum + remaining;
   }, 0);
 
-  const debtorPatientsCount = new Set(overdueInstallments.map((i: any) => (i.treatments as any)?.patient_id || i.patient_id)).size;
+  const debtorPatientsCount = new Set(
+    overdueInstallments.map((i: any) => (i.treatments as any)?.patient_id || i.patient_id)
+  ).size;
 
   return {
     totalOverdueAmount,
     overdueInstallmentsCount: overdueInstallments.length,
     debtorPatientsCount,
-    overdueInstallments
+    overdueInstallments,
   };
 }
 
@@ -99,10 +155,10 @@ export async function getPatientFinancialSummary(patientId: string) {
   let totalPending = 0;
   let overdueCount = 0;
 
-  treatments?.forEach(t => {
+  treatments?.forEach((t) => {
     totalContracted += t.total_amount || 0;
     const insts = t.installments || [];
-    
+
     insts.forEach((i: any) => {
       totalPaid += i.amount_paid || 0;
       if (isInstallmentOverdue(i)) {
@@ -117,7 +173,7 @@ export async function getPatientFinancialSummary(patientId: string) {
     totalContracted,
     totalPaid,
     totalPending,
-    overdueCount
+    overdueCount,
   };
 }
 
@@ -125,24 +181,21 @@ export async function getPatientFinancialSummary(patientId: string) {
  * Busca o resumo financeiro de um tratamento.
  */
 export async function getTreatmentFinancialSummary(treatmentId: string) {
-  const [
-    { data: treatment },
-    { data: installments }
-  ] = await Promise.all([
+  const [{ data: treatment }, { data: installments }] = await Promise.all([
     supabase.from('treatments').select('*').eq('id', treatmentId).single(),
-    supabase.from('installments').select('*').eq('treatment_id', treatmentId)
+    supabase.from('installments').select('*').eq('treatment_id', treatmentId),
   ]);
 
   if (!treatment) return null;
 
   const subtotal = treatment.subtotal || 0;
   const discount = treatment.discount_amount || 0;
-  const total = treatment.total_amount || (subtotal - discount);
-  
+  const total = treatment.total_amount || subtotal - discount;
+
   const paid = (installments || [])
-    .filter(i => i.status === 'paid')
+    .filter((i) => i.status === 'paid')
     .reduce((sum, i) => sum + (i.amount_paid || i.amount), 0);
-    
+
   const pending = total - paid;
   const overdue = (installments || []).filter(isInstallmentOverdue).length;
 
@@ -155,6 +208,6 @@ export async function getTreatmentFinancialSummary(treatmentId: string) {
     overdue,
     isFullyPaid: pending <= 0,
     installmentsCount: installments?.length || 0,
-    paidCount: (installments || []).filter(i => i.status === 'paid').length
+    paidCount: (installments || []).filter((i) => i.status === 'paid').length,
   };
 }

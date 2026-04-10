@@ -3,12 +3,11 @@
  * Esta página fornece uma visão geral da clínica, incluindo estatísticas,
  * atividades recentes e lembretes de cobrança.
  *
- * Etapa 2.2:
+ * Etapa 2.3:
  * - Mantém os cards principais clicáveis.
- * - Compacta e reorganiza o bloco de Atividades Recentes.
- * - Mostra de forma explícita apenas as 5 mais recentes.
- * - Remove temporariamente o link "Ver todas" para evitar rota morta
- *   até criarmos a página própria de histórico.
+ * - Mantém o bloco de atividades reorganizado.
+ * - Passa a usar as preferências salvas em Notificações
+ *   para montar o resumo de alertas no dashboard.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -26,16 +25,10 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/src/lib/supabase';
 import { getDashboardMetrics } from '@/src/lib/financialMetrics';
 import { resolvePatientName } from '@/src/lib/businessRules';
+import { getNotificationSettings } from '@/src/lib/appSettings';
 
-/**
- * Quantidade de atividades exibidas no dashboard.
- * Mantida em constante para facilitar mudança futura.
- */
 const RECENT_ACTIVITIES_LIMIT = 5;
 
-/**
- * Tipo dos cards principais do dashboard.
- */
 interface DashboardStatCard {
   label: string;
   value: string | number;
@@ -45,9 +38,6 @@ interface DashboardStatCard {
   helperText: string;
 }
 
-/**
- * Tipo simplificado das atividades recentes.
- */
 interface RecentActivity {
   id: string;
   type: 'payment' | 'treatment' | 'patient';
@@ -58,28 +48,58 @@ interface RecentActivity {
   rawDate: Date;
 }
 
+interface ReminderState {
+  dueWithinAlertDays: 0 | number;
+  overdue: 0 | number;
+  pendingTreatments: 0 | number;
+}
+
+interface DashboardNotificationPreferences {
+  dueAlertDays: number;
+  showDashboardAlertSummary: boolean;
+  enableWhatsappQuickCharge: boolean;
+}
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
-  const [reminders, setReminders] = useState({
-    dueToday: 0,
+  const [reminders, setReminders] = useState<ReminderState>({
+    dueWithinAlertDays: 0,
     overdue: 0,
     pendingTreatments: 0,
   });
+
+  const [notificationPreferences, setNotificationPreferences] =
+    useState<DashboardNotificationPreferences>({
+      dueAlertDays: 3,
+      showDashboardAlertSummary: true,
+      enableWhatsappQuickCharge: true,
+    });
 
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
-  /**
-   * Busca todos os dados necessários para o dashboard de forma paralela.
-   */
   async function fetchDashboardData() {
     setLoading(true);
 
     try {
-      const metrics = await getDashboardMetrics();
+      /**
+       * Busca as preferências salvas em Notificações primeiro,
+       * para o dashboard obedecer a configuração do usuário.
+       */
+      const notificationSettings = await getNotificationSettings();
+
+      const safeAlertDays = Math.max(0, Number(notificationSettings.due_alert_days || '3'));
+
+      setNotificationPreferences({
+        dueAlertDays: safeAlertDays,
+        showDashboardAlertSummary: notificationSettings.show_dashboard_alert_summary,
+        enableWhatsappQuickCharge: notificationSettings.enable_whatsapp_quick_charge,
+      });
+
+      const metrics = await getDashboardMetrics(safeAlertDays);
 
       const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
         await Promise.all([
@@ -172,20 +192,26 @@ export default function DashboardPage() {
       );
 
       setReminders({
-        dueToday: metrics.dueTodayCount,
-        overdue: metrics.overdueCount,
-        pendingTreatments: metrics.pendingTreatmentsCount,
+        dueWithinAlertDays: metrics.dueWithinAlertDaysCount || 0,
+        overdue: metrics.overdueCount || 0,
+        pendingTreatments: metrics.pendingTreatmentsCount || 0,
       });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+
+      /**
+       * Mantém fallback seguro se houver falha ao ler configurações.
+       */
+      setNotificationPreferences({
+        dueAlertDays: 3,
+        showDashboardAlertSummary: true,
+        enableWhatsappQuickCharge: true,
+      });
     } finally {
       setLoading(false);
     }
   }
 
-  /**
-   * Retorna cor e ícone da atividade para manter visual consistente.
-   */
   function getActivityVisual(type: RecentActivity['type']) {
     if (type === 'payment') {
       return {
@@ -208,6 +234,30 @@ export default function DashboardPage() {
       text: 'text-gray-700',
       icon: Users,
     };
+  }
+
+  /**
+   * Monta o texto principal do primeiro lembrete com base em "dias de antecedência".
+   */
+  function getUpcomingReminderLabel() {
+    if (notificationPreferences.dueAlertDays === 0) {
+      return `${reminders.dueWithinAlertDays} parcelas vencem hoje`;
+    }
+
+    if (notificationPreferences.dueAlertDays === 1) {
+      return `${reminders.dueWithinAlertDays} parcelas vencem em até 1 dia`;
+    }
+
+    return `${reminders.dueWithinAlertDays} parcelas vencem em até ${notificationPreferences.dueAlertDays} dias`;
+  }
+
+  /**
+   * Texto auxiliar muda conforme a ação rápida de WhatsApp estiver habilitada ou não.
+   */
+  function getUpcomingReminderHelperText() {
+    return notificationPreferences.enableWhatsappQuickCharge
+      ? 'Preparar cobrança assistida por WhatsApp'
+      : 'Acompanhar vencimentos próximos';
   }
 
   if (loading) {
@@ -267,7 +317,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Bloco de atividades recentes reorganizado */}
+        {/* Bloco de atividades recentes */}
         <div className="lg:col-span-2 bg-white rounded-xl border shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -358,63 +408,66 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border shadow-sm p-6">
-            <h3 className="font-bold text-gray-900 mb-4">Lembretes de Cobrança</h3>
+          {/* Resumo de alertas agora obedece às configurações de Notificações */}
+          {notificationPreferences.showDashboardAlertSummary && (
+            <div className="bg-white rounded-xl border shadow-sm p-6">
+              <h3 className="font-bold text-gray-900 mb-4">Lembretes de Cobrança</h3>
 
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div
-                  className={cn(
-                    'w-2 h-2 rounded-full mt-1.5 shrink-0',
-                    reminders.dueToday > 0 ? 'bg-red-500' : 'bg-gray-300'
-                  )}
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-900">
-                    {reminders.dueToday} parcelas vencem hoje
-                  </p>
-                  <p className="text-xs text-gray-500">Enviar lembretes via WhatsApp</p>
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'w-2 h-2 rounded-full mt-1.5 shrink-0',
+                      reminders.dueWithinAlertDays > 0 ? 'bg-yellow-500' : 'bg-gray-300'
+                    )}
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {getUpcomingReminderLabel()}
+                    </p>
+                    <p className="text-xs text-gray-500">{getUpcomingReminderHelperText()}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'w-2 h-2 rounded-full mt-1.5 shrink-0',
+                      reminders.overdue > 0 ? 'bg-red-600' : 'bg-gray-300'
+                    )}
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {reminders.overdue} parcelas em atraso
+                    </p>
+                    <p className="text-xs text-gray-500">Revisar cobranças pendentes</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'w-2 h-2 rounded-full mt-1.5 shrink-0',
+                      reminders.pendingTreatments > 0 ? 'bg-yellow-500' : 'bg-gray-300'
+                    )}
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {reminders.pendingTreatments} tratamentos aguardando aprovação
+                    </p>
+                    <p className="text-xs text-gray-500">Revisar orçamentos pendentes</p>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3">
-                <div
-                  className={cn(
-                    'w-2 h-2 rounded-full mt-1.5 shrink-0',
-                    reminders.overdue > 0 ? 'bg-red-600' : 'bg-gray-300'
-                  )}
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-900">
-                    {reminders.overdue} parcelas em atraso
-                  </p>
-                  <p className="text-xs text-gray-500">Revisar cobranças pendentes</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div
-                  className={cn(
-                    'w-2 h-2 rounded-full mt-1.5 shrink-0',
-                    reminders.pendingTreatments > 0 ? 'bg-yellow-500' : 'bg-gray-300'
-                  )}
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-900">
-                    {reminders.pendingTreatments} tratamentos aguardando aprovação
-                  </p>
-                  <p className="text-xs text-gray-500">Revisar orçamentos pendentes</p>
-                </div>
-              </div>
+              <Link
+                to="/cobrancas"
+                className="block w-full mt-6 py-2 text-center text-sm font-semibold text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors"
+              >
+                Ver Cobranças
+              </Link>
             </div>
-
-            <Link
-              to="/cobrancas"
-              className="block w-full mt-6 py-2 text-center text-sm font-semibold text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors"
-            >
-              Ver Cobranças
-            </Link>
-          </div>
+          )}
         </div>
       </div>
     </div>

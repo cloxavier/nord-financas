@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
-import { menuItems } from '../app/navigation';
+import { getAllNavigationItems } from '@/src/app/moduleRegistry';
 
 export default function AppLayout() {
   const { profile, roleName, signOut, hasPermission } = useAuth();
@@ -17,29 +17,16 @@ export default function AppLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const visibleMenuItems = useMemo(() => {
-  return menuItems.filter((item) => {
+  const registeredItems = getAllNavigationItems();
+
+  return registeredItems.filter((item) => {
     if (!item.requiredPermission) {
       return true;
     }
 
     return hasPermission(item.requiredPermission);
-  });
- }, [hasPermission]);
-
-  //    useEffect(() => {
-  //   if (!import.meta.env.DEV) return;
-
-  //   console.group('[AUTH DEBUG] Menu visível');
-  //   console.log('profile:', {
-  //     full_name: profile?.full_name,
-  //     role: profile?.role,
-  //     roleName,
-  //   });
-  //   console.log('users_manage:', hasPermission('users_manage'));
-  //   console.log('settings_manage:', hasPermission('settings_manage'));
-  //   console.log('visibleMenuItems:', visibleMenuItems.map((item) => item.label));
-  //   console.groupEnd();
-  // }, [profile, roleName, hasPermission, visibleMenuItems]);
+   });
+  }, [hasPermission]);
 
   const handleSignOut = async () => {
     await signOut();

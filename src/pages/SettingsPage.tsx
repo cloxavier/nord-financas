@@ -6,10 +6,18 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { Settings } from 'lucide-react';
-import { settingsSections } from '@/src/pages/settings/settingsSections';
+import { getAllSettingsSections } from '@/src/app/moduleRegistry';
 import { cn } from '@/src/lib/utils';
 
 export default function SettingsPage() {
+  const settingsSections = getAllSettingsSections().map((section) => ({
+    key: section.key,
+    title: section.title,
+    description: section.description,
+    path: section.path,
+    icon: section.icon,
+  }));
+
   return (
     <div className="space-y-6">
       {/* Cabeçalho da área de Configurações */}
@@ -38,16 +46,19 @@ export default function SettingsPage() {
 
             {settingsSections.map((section) => {
               const Icon = section.icon;
+
               return (
                 <NavLink
                   key={section.key}
                   to={section.path}
-                  className={({ isActive }) => cn(
-                    'w-full flex items-start gap-3 px-3 py-3 rounded-lg transition-colors border',
-                    isActive
-                      ? 'bg-white text-blue-600 border-blue-100 shadow-sm'
-                      : 'text-gray-600 border-transparent hover:bg-gray-100 hover:text-gray-900'
-                  )}
+                  className={({ isActive }) =>
+                    cn(
+                      'w-full flex items-start gap-3 px-3 py-3 rounded-lg transition-colors border',
+                      isActive
+                        ? 'bg-white text-blue-600 border-blue-100 shadow-sm'
+                        : 'text-gray-600 border-transparent hover:bg-gray-100 hover:text-gray-900'
+                    )
+                  }
                 >
                   <Icon size={18} className="mt-0.5 shrink-0" />
                   <div className="min-w-0 text-left">

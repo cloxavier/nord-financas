@@ -1,44 +1,16 @@
 /**
  * Camada utilitária de permissões.
- * Centraliza leitura segura do permissions_json vindo do cargo.
+ * Centraliza leitura segura do permissions_json vindo do cargo
+ * e usa o catálogo oficial do domínio de acesso.
  */
+import {
+  PermissionKey,
+  permissionKeys,
+} from '@/src/domain/access/catalog/permissionCatalog';
 
-export type PermissionKey =
-  | 'dashboard_basic'
-  | 'dashboard_executive'
-  | 'patients_view'
-  | 'patients_create'
-  | 'patients_edit'
-  | 'treatments_view'
-  | 'treatments_create'
-  | 'treatments_edit'
-  | 'installments_view'
-  | 'payments_register'
-  | 'payments_edit'
-  | 'collections_view'
-  | 'users_manage'
-  | 'roles_manage'
-  | 'settings_manage';
+export type { PermissionKey };
 
 export type PermissionMap = Partial<Record<PermissionKey, boolean>>;
-
-const PERMISSION_KEYS: PermissionKey[] = [
-  'dashboard_basic',
-  'dashboard_executive',
-  'patients_view',
-  'patients_create',
-  'patients_edit',
-  'treatments_view',
-  'treatments_create',
-  'treatments_edit',
-  'installments_view',
-  'payments_register',
-  'payments_edit',
-  'collections_view',
-  'users_manage',
-  'roles_manage',
-  'settings_manage',
-];
 
 /**
  * Converte o valor bruto para boolean de forma segura.
@@ -65,7 +37,7 @@ export function normalizePermissions(input: unknown): PermissionMap {
   const raw = input as Record<string, unknown>;
   const normalized: PermissionMap = {};
 
-  for (const key of PERMISSION_KEYS) {
+  for (const key of permissionKeys) {
     normalized[key] = coercePermissionValue(raw[key]);
   }
 

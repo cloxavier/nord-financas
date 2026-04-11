@@ -26,6 +26,21 @@ export default function AppLayout() {
   });
  }, [hasPermission]);
 
+  //    useEffect(() => {
+  //   if (!import.meta.env.DEV) return;
+
+  //   console.group('[AUTH DEBUG] Menu visível');
+  //   console.log('profile:', {
+  //     full_name: profile?.full_name,
+  //     role: profile?.role,
+  //     roleName,
+  //   });
+  //   console.log('users_manage:', hasPermission('users_manage'));
+  //   console.log('settings_manage:', hasPermission('settings_manage'));
+  //   console.log('visibleMenuItems:', visibleMenuItems.map((item) => item.label));
+  //   console.groupEnd();
+  // }, [profile, roleName, hasPermission, visibleMenuItems]);
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');

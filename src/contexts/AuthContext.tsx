@@ -112,6 +112,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resolved_role_slug: resolvedRoleSlug,
       };
 
+      // const normalizedPermissions = normalizePermissions(data.access_role?.permissions_json);
+
+      // if (import.meta.env.DEV) {
+      //   console.group('[AUTH DEBUG] Perfil carregado');
+      //   console.log('userId:', userId);
+      //   console.log('profile.id:', data.id);
+      //   console.log('full_name:', data.full_name);
+      //   console.log('email:', data.email);
+      //   console.log('legacy role:', data.role);
+      //   console.log('access_status:', data.access_status);
+      //   console.log('role_id:', data.role_id);
+      //   console.log('access_role raw:', data.access_role);
+      //   console.log('permissions_json raw:', data.access_role?.permissions_json);
+      //   console.log('permissions normalized:', normalizedPermissions);
+      //   console.log('users_manage:', normalizedPermissions.users_manage);
+      //   console.log('settings_manage:', normalizedPermissions.settings_manage);
+      //   console.log('dashboard_executive:', normalizedPermissions.dashboard_executive);
+      //   console.log('collections_view:', normalizedPermissions.collections_view);
+      //   console.groupEnd();
+      // }
+
       setProfile(normalizedProfile);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -178,9 +199,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return profile.resolved_role_slug || null;
   }, [profile]);
 
-  const permissions = useMemo<PermissionMap>(() => {
-    return normalizePermissions(profile?.access_role?.permissions_json);
-  }, [profile]);
+ const permissions = useMemo<PermissionMap>(() => {
+  return normalizePermissions(profile?.access_role?.permissions_json);
+}, [profile]);
 
   const hasPermission = useCallback(
     (key: PermissionKey) => checkPermission(permissions, key),

@@ -76,6 +76,15 @@ export default function DashboardPage() {
   const canSeeExecutiveDashboard = hasPermission('dashboard_executive');
   const canSeeCollections = hasPermission('collections_view');
 
+  //   useEffect(() => {
+  //   if (!import.meta.env.DEV) return;
+
+  //   console.group('[AUTH DEBUG] Dashboard');
+  //   console.log('canSeeExecutiveDashboard:', canSeeExecutiveDashboard);
+  //   console.log('canSeeCollections:', canSeeCollections);
+  //   console.groupEnd();
+  // }, [canSeeExecutiveDashboard, canSeeCollections]);
+
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
@@ -428,7 +437,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="divide-y">
-            {recentActivities.length > 0 ? {recentActivities.length > 0 ? (
+            {recentActivities.length > 0 ? (
               recentActivities.map((activity) => {
                 const visual = getActivityVisual(activity.type);
                 const ActivityIcon = visual.icon;

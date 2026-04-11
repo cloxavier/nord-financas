@@ -16,7 +16,6 @@ import {
   Users,
   ClipboardList,
   TrendingUp,
-  AlertCircle,
   Calendar,
   Loader2,
   ArrowRight,
@@ -27,6 +26,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/src/lib/supabase';
 import { getWidgetsBySlot } from '@/src/app/moduleRegistry';
 import { getDashboardMetrics } from '@/src/lib/financialMetrics';
+import { dashboardStatCardDefinitions } from '@/src/modules/dashboard/config/statCards';
 import { resolvePatientName } from '@/src/lib/businessRules';
 import { getNotificationSettings } from '@/src/lib/appSettings';
 
@@ -119,42 +119,42 @@ export default function DashboardPage() {
           supabase.from('patients').select('*').order('created_at', { ascending: false }).limit(10),
         ]);
 
-      setStats([
-        {
-          label: 'Total de Pacientes',
-          value: metrics.patientCount,
-          icon: Users,
-          color: 'bg-blue-500',
-          to: '/pacientes',
-          helperText: 'Ver lista de pacientes',
-        },
-        {
-          label: 'Tratamentos Ativos',
-          value: metrics.activeTreatmentsCount,
-          icon: ClipboardList,
-          color: 'bg-green-500',
-          to: '/tratamentos',
-          helperText: 'Ver lista de tratamentos',
-        },
-        {
-          label: 'Recebido no Mês',
-          value: formatCurrency(metrics.monthlyRevenue),
-          icon: TrendingUp,
-          color: 'bg-purple-500',
-          to: '/parcelas',
-          helperText: 'Ver parcelas e recebimentos',
-          requiredPermission: 'dashboard_executive',
-        },
-        {
-          label: 'Parcelas em Atraso',
-          value: metrics.overdueCount,
-          icon: AlertCircle,
-          color: 'bg-red-500',
-          to: '/cobrancas',
-          helperText: 'Ver cobranças pendentes',
-          requiredPermission: 'dashboard_executive',
-        },
-      ]);
+      setStats(
+  dashboardStatCardDefinitions.map((card) => {
+    let value: string | number = 0;
+
+    switch (card.key) {
+      case 'patients.total':
+        value = metrics.patientCount;
+        break;
+
+      case 'treatments.active':
+        value = metrics.activeTreatmentsCount;
+        break;
+
+      case 'revenue.month':
+        value = formatCurrency(metrics.monthlyRevenue);
+        break;
+
+      case 'collections.overdue':
+        value = metrics.overdueCount;
+        break;
+
+      default:
+        value = 0;
+    }
+
+    return {
+      label: card.label,
+      value,
+      icon: card.icon,
+      color: card.color,
+      to: card.to,
+      helperText: card.helperText,
+      requiredPermission: card.requiredPermission,
+    };
+  })
+);
 
       const normalizedActivities: RecentActivity[] = [];
 

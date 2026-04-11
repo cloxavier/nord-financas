@@ -1,0 +1,128 @@
+import {
+  LayoutDashboard,
+  Users,
+  Stethoscope,
+  ClipboardList,
+  CreditCard,
+  Bell,
+  BarChart3,
+  Settings,
+  User,
+  Shield,
+  Building2,
+} from 'lucide-react';
+import { AppModuleDefinition } from '@/src/app/extensions/contracts';
+
+export const coreModule: AppModuleDefinition = {
+  name: 'core',
+
+  navigationItems: [
+    {
+      key: 'dashboard',
+      label: 'Dashboard',
+      path: '/dashboard',
+      icon: LayoutDashboard,
+      order: 10,
+    },
+    {
+      key: 'patients',
+      label: 'Pacientes',
+      path: '/pacientes',
+      icon: Users,
+      order: 20,
+    },
+    {
+      key: 'procedures',
+      label: 'Procedimentos',
+      path: '/procedimentos',
+      icon: Stethoscope,
+      order: 30,
+    },
+    {
+      key: 'treatments',
+      label: 'Tratamentos',
+      path: '/tratamentos',
+      icon: ClipboardList,
+      order: 40,
+    },
+    {
+      key: 'installments',
+      label: 'Parcelas',
+      path: '/parcelas',
+      icon: CreditCard,
+      order: 50,
+    },
+    {
+      key: 'billing',
+      label: 'Cobranças',
+      path: '/cobrancas',
+      icon: Bell,
+      order: 60,
+    },
+    {
+      key: 'reports',
+      label: 'Relatórios',
+      path: '/relatorios',
+      icon: BarChart3,
+      order: 70,
+    },
+    {
+      key: 'users',
+      label: 'Usuários',
+      path: '/usuarios',
+      icon: Shield,
+      requiredPermission: 'users_manage',
+      order: 80,
+    },
+    {
+      key: 'settings',
+      label: 'Configurações',
+      path: '/configuracoes',
+      icon: Settings,
+      requiredPermission: 'settings_manage',
+      order: 90,
+    },
+    {
+      key: 'profile',
+      label: 'Perfil',
+      path: '/perfil',
+      icon: User,
+      order: 100,
+    },
+  ],
+
+  settingsSections: [
+    {
+      key: 'clinica',
+      title: 'Dados da Clínica',
+      description: 'Informações institucionais e de contato usadas no sistema.',
+      path: '/configuracoes/clinica',
+      icon: Building2,
+      order: 10,
+    },
+    {
+      key: 'financeiro-pix',
+      title: 'Financeiro & Pix',
+      description: 'Configure os dados básicos usados em cobranças, recebimentos e Pix.',
+      path: '/configuracoes/financeiro-pix',
+      icon: CreditCard,
+      order: 20,
+    },
+    {
+      key: 'notificacoes',
+      title: 'Notificações',
+      description: 'Configure alertas internos e a base da cobrança assistida por WhatsApp.',
+      path: '/configuracoes/notificacoes',
+      icon: Bell,
+      order: 30,
+    },
+    {
+      key: 'permissoes-seguranca',
+      title: 'Permissões e Segurança',
+      description: 'Configure confirmações reforçadas e a base de segurança para ações sensíveis.',
+      path: '/configuracoes/permissoes-seguranca',
+      icon: Shield,
+      order: 40,
+    },
+  ],
+};

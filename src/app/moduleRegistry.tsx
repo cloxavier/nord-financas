@@ -1,27 +1,23 @@
-import { ReactNode } from 'react';
-
-export interface AppRoute {
-  path: string;
-  element: ReactNode;
-  protected?: boolean;
-  publicOnly?: boolean;
-  layout?: boolean;
-}
-
-export interface AppModule {
-  name: string;
-  routes: AppRoute[];
-}
+import {
+  AppModuleDefinition,
+  AppNavigationItemDefinition,
+  AppRouteDefinition,
+  AppSettingsSectionDefinition,
+  AppSlotKey,
+  AppWidgetDefinition,
+} from '@/src/app/extensions/contracts';
 
 import { authModule } from '@/src/modules/auth';
 import { dashboardModule } from '@/src/modules/dashboard';
+import { coreModule } from '@/src/modules/core';
 
-const modules: AppModule[] = [
+const modules: AppModuleDefinition[] = [
   authModule,
   dashboardModule,
+  coreModule,
 ];
 
-export function registerModule(module: AppModule) {
+export function registerModule(module: AppModuleDefinition) {
   modules.push(module);
 }
 
@@ -29,6 +25,25 @@ export function getModules() {
   return modules;
 }
 
-export function getAllRoutes() {
-  return modules.flatMap(m => m.routes);
+export function getAllRoutes(): AppRouteDefinition[] {
+  return modules.flatMap((module) => module.routes ?? []);
+}
+
+export function getAllNavigationItems(): AppNavigationItemDefinition[] {
+  return modules
+    .flatMap((module) => module.navigationItems ?? [])
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+}
+
+export function getAllSettingsSections(): AppSettingsSectionDefinition[] {
+  return modules
+    .flatMap((module) => module.settingsSections ?? [])
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+}
+
+export function getWidgetsBySlot(slot: AppSlotKey): AppWidgetDefinition[] {
+  return modules
+    .flatMap((module) => module.widgets ?? [])
+    .filter((widget) => widget.slot === slot)
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 }

@@ -1,9 +1,15 @@
 import DashboardPage from './pages/DashboardPage';
-import { AppModule } from '@/src/app/moduleRegistry';
+import { AppModuleDefinition } from '@/src/app/extensions/contracts';
 
-export const dashboardModule: AppModule = {
+export const dashboardModule: AppModuleDefinition = {
   name: 'dashboard',
   routes: [
-    { path: '/dashboard', element: <DashboardPage />, protected: true, layout: true },
+    {
+      path: '/dashboard',
+      element: <DashboardPage />,
+      protected: true,
+      layout: true,
+      order: 10,
+    },
   ],
 };

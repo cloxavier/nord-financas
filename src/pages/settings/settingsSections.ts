@@ -1,8 +1,10 @@
 /**
- * Configuração central das seções da área de Configurações.
- * Mantém rótulos, ícones e rotas em um único lugar para facilitar manutenção futura.
+ * Compatibilidade temporária:
+ * as seções de configurações agora nascem do registry central de módulos.
+ * Este arquivo permanece para evitar regressão enquanto a tela ainda consome a estrutura antiga.
  */
-import { Bell, Building2, CreditCard, Shield, type LucideIcon } from 'lucide-react';
+import { type LucideIcon } from 'lucide-react';
+import { getAllSettingsSections } from '@/src/app/moduleRegistry';
 
 export interface SettingsSection {
   key: string;
@@ -12,33 +14,10 @@ export interface SettingsSection {
   icon: LucideIcon;
 }
 
-export const settingsSections: SettingsSection[] = [
-  {
-    key: 'clinica',
-    title: 'Dados da Clínica',
-    description: 'Informações institucionais e de contato usadas no sistema.',
-    path: '/configuracoes/clinica',
-    icon: Building2,
-  },
-  {
-  key: 'financeiro-pix',
-  title: 'Financeiro & Pix',
-  description: 'Configure os dados básicos usados em cobranças, recebimentos e Pix.',
-  path: '/configuracoes/financeiro-pix',
-  icon: CreditCard,
- },
- {
-  key: 'notificacoes',
-  title: 'Notificações',
-  description: 'Configure alertas internos e a base da cobrança assistida por WhatsApp.',
-  path: '/configuracoes/notificacoes',
-  icon: Bell,
-},
-  {
-  key: 'permissoes-seguranca',
-  title: 'Permissões e Segurança',
-  description: 'Configure confirmações reforçadas e a base de segurança para ações sensíveis.',
-  path: '/configuracoes/permissoes-seguranca',
-  icon: Shield,
-},
-];
+export const settingsSections: SettingsSection[] = getAllSettingsSections().map((section) => ({
+  key: section.key,
+  title: section.title,
+  description: section.description,
+  path: section.path,
+  icon: section.icon,
+}));

@@ -25,6 +25,7 @@ import {
 import { formatCurrency, cn } from '@/src/lib/utils';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/src/lib/supabase';
+import { getWidgetsBySlot } from '@/src/app/moduleRegistry';
 import { getDashboardMetrics } from '@/src/lib/financialMetrics';
 import { resolvePatientName } from '@/src/lib/businessRules';
 import { getNotificationSettings } from '@/src/lib/appSettings';
@@ -75,15 +76,6 @@ export default function DashboardPage() {
 
   const canSeeExecutiveDashboard = hasPermission('dashboard_executive');
   const canSeeCollections = hasPermission('collections_view');
-
-  //   useEffect(() => {
-  //   if (!import.meta.env.DEV) return;
-
-  //   console.group('[AUTH DEBUG] Dashboard');
-  //   console.log('canSeeExecutiveDashboard:', canSeeExecutiveDashboard);
-  //   console.log('canSeeCollections:', canSeeCollections);
-  //   console.groupEnd();
-  // }, [canSeeExecutiveDashboard, canSeeCollections]);
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
@@ -344,8 +336,18 @@ export default function DashboardPage() {
     });
   }, [stats, canSeeExecutiveDashboard]);
 
-  const reminderActions = getReminderActions();
-  const primaryReminderCTA = getPrimaryReminderCTA();
+const reminderActions = getReminderActions();
+const primaryReminderCTA = getPrimaryReminderCTA();
+
+const rightColumnWidgets = useMemo(() => {
+  return getWidgetsBySlot('dashboard.panel.right').filter((widget) => {
+    if (!widget.requiredPermission) {
+      return true;
+    }
+
+    return hasPermission(widget.requiredPermission);
+  });
+}, [hasPermission]);
 
   if (loading) {
     return (
@@ -488,30 +490,13 @@ export default function DashboardPage() {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-blue-600 rounded-xl p-6 text-white shadow-lg shadow-blue-200">
-            <h3 className="font-bold text-lg mb-2">Ações Rápidas</h3>
-            <p className="text-blue-100 text-sm mb-6">
-              Agilize o atendimento e controle financeiro da sua clínica.
-            </p>
+          {rightColumnWidgets.map((widget) => {
+            const WidgetComponent = widget.component as React.ComponentType;
 
-            <div className="space-y-3">
-              <Link
-                to="/pacientes/novo"
-                className="block w-full py-2 px-4 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-semibold text-center transition-colors"
-              >
-                Novo Paciente
-              </Link>
+            return <WidgetComponent key={widget.key} />;
+          })}
 
-              <Link
-                to="/tratamentos/novo"
-                className="block w-full py-2 px-4 bg-white text-blue-600 hover:bg-blue-50 rounded-lg text-sm font-bold text-center transition-colors"
-              >
-                Novo Tratamento
-              </Link>
-            </div>
-          </div>
-
-          {canSeeCollections && notificationPreferences.showDashboardAlertSummary && (
+  {canSeeCollections && notificationPreferences.showDashboardAlertSummary && (
             <div className="bg-white rounded-xl border shadow-sm p-6">
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>

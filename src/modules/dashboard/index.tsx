@@ -1,4 +1,5 @@
 import DashboardPage from './pages/DashboardPage';
+import QuickActionsWidget from './widgets/QuickActionsWidget';
 import { AppModuleDefinition } from '@/src/app/extensions/contracts';
 
 export const dashboardModule: AppModuleDefinition = {
@@ -9,6 +10,14 @@ export const dashboardModule: AppModuleDefinition = {
       element: <DashboardPage />,
       protected: true,
       layout: true,
+      order: 10,
+    },
+  ],
+  widgets: [
+    {
+      key: 'dashboard.quick-actions',
+      slot: 'dashboard.panel.right',
+      component: QuickActionsWidget,
       order: 10,
     },
   ],

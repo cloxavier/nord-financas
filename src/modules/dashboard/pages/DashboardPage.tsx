@@ -398,7 +398,12 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className={cn('bg-white rounded-xl border shadow-sm overflow-hidden', canSeeCollections ? 'lg:col-span-2' : 'lg:col-span-3')}>
+        <div
+          className={cn(
+            'bg-white rounded-xl border shadow-sm overflow-hidden',
+            canSeeCollections ? 'lg:col-span-2' : 'lg:col-span-3'
+          )}
+        >
           <div className="px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="font-bold text-gray-900">Atividades Recentes</h3>
@@ -423,7 +428,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="divide-y">
-            {recentActivities.length > 0 ? (
+            {recentActivities.length > 0 ? {recentActivities.length > 0 ? (
               recentActivities.map((activity) => {
                 const visual = getActivityVisual(activity.type);
                 const ActivityIcon = visual.icon;

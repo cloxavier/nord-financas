@@ -90,6 +90,7 @@ export default function AppRoutes() {
 
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/atividades" element={<ActivitiesPage />} />
+
         <Route
           path="/usuarios"
           element={

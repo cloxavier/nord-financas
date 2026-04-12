@@ -5,6 +5,7 @@
 
 import { supabase } from './supabase';
 import { isInstallmentOverdue } from './businessRules';
+import { parseDateOnlyAsLocalDate } from './utils';
 
 /**
  * Calcula a diferença em dias entre hoje e a data de vencimento.
@@ -17,7 +18,9 @@ function getInstallmentDayOffset(dueDateStr: string): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const dueDate = new Date(dueDateStr);
+  const dueDate = parseDateOnlyAsLocalDate(dueDateStr);
+  if (!dueDate) return 0;
+
   dueDate.setHours(0, 0, 0, 0);
 
   const diffMs = dueDate.getTime() - today.getTime();

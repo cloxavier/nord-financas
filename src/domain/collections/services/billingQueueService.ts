@@ -126,8 +126,11 @@ export async function getBillingQueueData(
   const patientPhoneMap = await loadPatientPhoneMap(tasks.map((task) => task.patientId));
   const rows = normalizeBillingRows(tasks, patientPhoneMap, filter, dueAlertDays);
 
-  return {
+    return {
     rows,
-    summary,
+    summary: {
+      ...summary,
+      pendingTasksCount: rows.length,
+    },
   };
 }

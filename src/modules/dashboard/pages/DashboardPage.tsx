@@ -10,6 +10,11 @@
  * - Mantém os cards clicáveis e o bloco de atividades sem regressão.
  */
 
+import {
+  canSeeCollections as resolveCanSeeCollections,
+  canSeeExecutiveDashboard as resolveCanSeeExecutiveDashboard,
+  filterItemsByPermission,
+} from '@/src/domain/access/policies/accessPolicies';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/src/contexts/AuthContext';
 import {
@@ -72,10 +77,10 @@ interface ReminderAction {
 }
 
 export default function DashboardPage() {
-  const { hasPermission } = useAuth();
+  const { permissions, hasPermission } = useAuth();
 
-  const canSeeExecutiveDashboard = hasPermission('dashboard_executive');
-  const canSeeCollections = hasPermission('collections_view');
+  const canSeeExecutiveDashboard = resolveCanSeeExecutiveDashboard(permissions);
+  const canSeeCollections = resolveCanSeeCollections(permissions);
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
@@ -323,31 +328,15 @@ export default function DashboardPage() {
   }
 
   const visibleStats = useMemo(() => {
-    return stats.filter((stat) => {
-      if (!stat.requiredPermission) {
-        return true;
-      }
-
-      if (stat.requiredPermission === 'dashboard_executive') {
-        return canSeeExecutiveDashboard;
-      }
-
-      return true;
-    });
-  }, [stats, canSeeExecutiveDashboard]);
+    return filterItemsByPermission(stats, permissions);
+  }, [stats, permissions]);
 
 const reminderActions = getReminderActions();
 const primaryReminderCTA = getPrimaryReminderCTA();
 
 const rightColumnWidgets = useMemo(() => {
-  return getWidgetsBySlot('dashboard.panel.right').filter((widget) => {
-    if (!widget.requiredPermission) {
-      return true;
-    }
-
-    return hasPermission(widget.requiredPermission);
-  });
-}, [hasPermission]);
+  return filterItemsByPermission(getWidgetsBySlot('dashboard.panel.right'), permissions);
+ }, [permissions]);
 
   if (loading) {
     return (

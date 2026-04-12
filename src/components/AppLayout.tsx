@@ -9,9 +9,10 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 import { getAllNavigationItems } from '@/src/app/moduleRegistry';
+import { filterItemsByPermission } from '@/src/domain/access/policies/accessPolicies';
 
 export default function AppLayout() {
-  const { profile, roleName, signOut, hasPermission } = useAuth();
+  const { profile, roleName, permissions, hasPermission, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -19,14 +20,8 @@ export default function AppLayout() {
   const visibleMenuItems = useMemo(() => {
   const registeredItems = getAllNavigationItems();
 
-  return registeredItems.filter((item) => {
-    if (!item.requiredPermission) {
-      return true;
-    }
-
-    return hasPermission(item.requiredPermission);
-   });
-  }, [hasPermission]);
+  return filterItemsByPermission(registeredItems, permissions);
+}, [permissions]);
 
   const handleSignOut = async () => {
     await signOut();

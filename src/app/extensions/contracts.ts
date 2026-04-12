@@ -21,7 +21,6 @@ export interface AppRouteDefinition {
 
   /**
    * Quando true, representa uma rota index filha.
-   * Exemplo: dentro de /configuracoes, redirecionar automaticamente para /configuracoes/clinica
    */
   index?: boolean;
 
@@ -31,15 +30,24 @@ export interface AppRouteDefinition {
   element: ReactNode;
 
   /**
-   * Indica se a rota exige autenticação.
+   * Rota protegida padrão da aplicação.
    */
   protected?: boolean;
 
   /**
-   * Indica se a rota deve existir apenas para usuários não autenticados.
-   * Exemplo: login, cadastro, recuperar senha.
+   * Rota exclusiva para usuários não autenticados.
    */
   publicOnly?: boolean;
+
+  /**
+   * Rota exclusiva para usuário autenticado com status pendente.
+   */
+  pendingApprovalOnly?: boolean;
+
+  /**
+   * Rota exclusiva para usuário autenticado com status bloqueado.
+   */
+  blockedUserOnly?: boolean;
 
   /**
    * Indica se a rota deve ser renderizada dentro do AppLayout.
@@ -48,7 +56,6 @@ export interface AppRouteDefinition {
 
   /**
    * Permissão exigida para acessar a rota.
-   * Quando presente, o AppRoutes fará o wrap automático com PermissionRoute.
    */
   requiredPermission?: PermissionKey;
 
@@ -59,7 +66,6 @@ export interface AppRouteDefinition {
 
   /**
    * Permite registrar subrotas diretamente no módulo.
-   * Isso é importante para áreas como Configurações, que possuem árvore própria.
    */
   children?: AppRouteDefinition[];
 }

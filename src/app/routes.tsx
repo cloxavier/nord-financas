@@ -10,12 +10,9 @@ import {
 import AppLayout from '@/src/components/AppLayout';
 import { AppRouteDefinition } from '@/src/app/extensions/contracts';
 import { getAllRoutes } from './moduleRegistry';
-import PendingApprovalPage from '@/src/modules/auth/pages/PendingApprovalPage';
-import BlockedAccessPage from '@/src/modules/auth/pages/BlockedAccessPage';
 
 /**
  * Aplica proteção por permissão automaticamente quando a rota declarar requiredPermission.
- * Isso evita repetir PermissionRoute manualmente em vários pontos do AppRoutes.
  */
 function wrapRouteElement(route: AppRouteDefinition) {
   if (route.requiredPermission) {
@@ -31,7 +28,6 @@ function wrapRouteElement(route: AppRouteDefinition) {
 
 /**
  * Renderiza recursivamente rotas modulares.
- * Isso permite que módulos registrem árvore de rotas, como /configuracoes + suas filhas.
  */
 function renderModularRoute(
   route: AppRouteDefinition,
@@ -65,18 +61,41 @@ export default function AppRoutes() {
   const publicOnlyRoutes = modularRoutes.filter((route) => route.publicOnly);
 
   /**
+   * Rotas exclusivas para usuário pendente.
+   */
+  const pendingApprovalOnlyRoutes = modularRoutes.filter(
+    (route) => route.pendingApprovalOnly
+  );
+
+  /**
+   * Rotas exclusivas para usuário bloqueado.
+   */
+  const blockedUserOnlyRoutes = modularRoutes.filter(
+    (route) => route.blockedUserOnly
+  );
+
+  /**
    * Rotas protegidas com layout principal.
    */
   const layoutRoutes = modularRoutes.filter(
-    (route) => route.layout && route.protected
+    (route) =>
+      route.layout &&
+      route.protected &&
+      !route.publicOnly &&
+      !route.pendingApprovalOnly &&
+      !route.blockedUserOnly
   );
 
   /**
    * Rotas protegidas sem layout.
-   * Exemplo: impressão.
    */
   const otherProtectedRoutes = modularRoutes.filter(
-    (route) => route.protected && !route.layout
+    (route) =>
+      route.protected &&
+      !route.layout &&
+      !route.publicOnly &&
+      !route.pendingApprovalOnly &&
+      !route.blockedUserOnly
   );
 
   return (
@@ -90,25 +109,31 @@ export default function AppRoutes() {
         />
       ))}
 
-      {/* Rotas especiais de status de acesso.
-          Nesta etapa elas continuam explícitas porque pertencem ao fluxo-base de autenticação/status. */}
-      <Route
-        path="/aguardando-liberacao"
-        element={
-          <PendingApprovalRoute>
-            <PendingApprovalPage />
-          </PendingApprovalRoute>
-        }
-      />
+      {/* Rotas exclusivas para usuário pendente */}
+      {pendingApprovalOnlyRoutes.map((route, index) => (
+        <Route
+          key={`${route.path ?? 'pending-route'}-${index}`}
+          path={route.path}
+          element={
+            <PendingApprovalRoute>
+              {wrapRouteElement(route)}
+            </PendingApprovalRoute>
+          }
+        />
+      ))}
 
-      <Route
-        path="/acesso-bloqueado"
-        element={
-          <BlockedUserRoute>
-            <BlockedAccessPage />
-          </BlockedUserRoute>
-        }
-      />
+      {/* Rotas exclusivas para usuário bloqueado */}
+      {blockedUserOnlyRoutes.map((route, index) => (
+        <Route
+          key={`${route.path ?? 'blocked-route'}-${index}`}
+          path={route.path}
+          element={
+            <BlockedUserRoute>
+              {wrapRouteElement(route)}
+            </BlockedUserRoute>
+          }
+        />
+      ))}
 
       {/* Rotas protegidas que usam AppLayout */}
       <Route

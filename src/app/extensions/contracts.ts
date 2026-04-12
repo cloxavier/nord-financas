@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, ComponentType } from 'react';
 import { LucideIcon } from 'lucide-react';
 import { PermissionKey } from '@/src/lib/permissions';
 
@@ -12,13 +12,56 @@ export type AppSlotKey =
   | 'activities.detail.resolvers';
 
 export interface AppRouteDefinition {
-  path: string;
+  /**
+   * Caminho da rota.
+   * - Em rotas de primeiro nível, use caminho absoluto: "/pacientes"
+   * - Em rotas filhas, use caminho relativo: "clinica"
+   */
+  path?: string;
+
+  /**
+   * Quando true, representa uma rota index filha.
+   * Exemplo: dentro de /configuracoes, redirecionar automaticamente para /configuracoes/clinica
+   */
+  index?: boolean;
+
+  /**
+   * Elemento React da rota.
+   */
   element: ReactNode;
+
+  /**
+   * Indica se a rota exige autenticação.
+   */
   protected?: boolean;
+
+  /**
+   * Indica se a rota deve existir apenas para usuários não autenticados.
+   * Exemplo: login, cadastro, recuperar senha.
+   */
   publicOnly?: boolean;
+
+  /**
+   * Indica se a rota deve ser renderizada dentro do AppLayout.
+   */
   layout?: boolean;
+
+  /**
+   * Permissão exigida para acessar a rota.
+   * Quando presente, o AppRoutes fará o wrap automático com PermissionRoute.
+   */
   requiredPermission?: PermissionKey;
+
+  /**
+   * Ordem opcional para organização futura.
+   */
   order?: number;
+
+  /**
+   * Permite registrar subrotas diretamente no módulo.
+   * Isso é importante para áreas como Configurações, que possuem árvore própria.
+   */
+  children?: AppRouteDefinition[];
 }
 
 export interface AppNavigationItemDefinition {
@@ -33,7 +76,7 @@ export interface AppNavigationItemDefinition {
 export interface AppWidgetDefinition<TProps = Record<string, never>> {
   key: string;
   slot: AppSlotKey;
-  component: React.ComponentType<TProps>;
+  component: ComponentType<TProps>;
   requiredPermission?: PermissionKey;
   order?: number;
 }

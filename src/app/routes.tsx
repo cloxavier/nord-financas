@@ -8,54 +8,90 @@ import {
   PermissionRoute,
 } from '@/src/components/RouteGuards';
 import AppLayout from '@/src/components/AppLayout';
+import { AppRouteDefinition } from '@/src/app/extensions/contracts';
 import { getAllRoutes } from './moduleRegistry';
-
-import PatientsPage from '@/src/pages/PatientsPage';
-import PatientFormPage from '@/src/pages/PatientFormPage';
-import PatientDetailPage from '@/src/pages/PatientDetailPage';
-import ProceduresPage from '@/src/pages/ProceduresPage';
-import ProcedureFormPage from '@/src/pages/ProcedureFormPage';
-import ProcedureDetailPage from '@/src/pages/ProcedureDetailPage';
-import TreatmentsPage from '@/src/pages/TreatmentsPage';
-import TreatmentFormPage from '@/src/pages/TreatmentFormPage';
-import TreatmentDetailPage from '@/src/pages/TreatmentDetailPage';
-import TreatmentPrintPage from '@/src/pages/TreatmentPrintPage';
-import ReportPrintPage from '@/src/pages/ReportPrintPage';
-import InstallmentsPage from '@/src/pages/InstallmentsPage';
-import InstallmentDetailPage from '@/src/pages/InstallmentDetailPage';
-import BillingPage from '@/src/pages/BillingPage';
-import ReportsPage from '@/src/pages/ReportsPage';
-import ReportViewPage from '@/src/pages/ReportViewPage';
-import SettingsPage from '@/src/pages/SettingsPage';
-import ProfilePage from '@/src/pages/ProfilePage';
-import ActivitiesPage from '@/src/pages/ActivitiesPage';
-import UserAccessManagementPage from '@/src/pages/UserAccessManagementPage';
-import ClinicSettingsPage from '@/src/pages/settings/ClinicSettingsPage';
-import FinancialPixSettingsPage from '@/src/pages/settings/FinancialPixSettingsPage';
-import NotificationsSettingsPage from '@/src/pages/settings/NotificationsSettingsPage';
-import PermissionsSecuritySettingsPage from '@/src/pages/settings/PermissionsSecuritySettingsPage';
 import PendingApprovalPage from '@/src/modules/auth/pages/PendingApprovalPage';
 import BlockedAccessPage from '@/src/modules/auth/pages/BlockedAccessPage';
 
+/**
+ * Aplica proteção por permissão automaticamente quando a rota declarar requiredPermission.
+ * Isso evita repetir PermissionRoute manualmente em vários pontos do AppRoutes.
+ */
+function wrapRouteElement(route: AppRouteDefinition) {
+  if (route.requiredPermission) {
+    return (
+      <PermissionRoute permission={route.requiredPermission}>
+        {route.element}
+      </PermissionRoute>
+    );
+  }
+
+  return route.element;
+}
+
+/**
+ * Renderiza recursivamente rotas modulares.
+ * Isso permite que módulos registrem árvore de rotas, como /configuracoes + suas filhas.
+ */
+function renderModularRoute(
+  route: AppRouteDefinition,
+  parentKey = ''
+): React.ReactElement {
+  const routeKey = route.index
+    ? `${parentKey}index`
+    : `${parentKey}${route.path ?? 'route-without-path'}`;
+
+  return (
+    <Route
+      key={routeKey}
+      index={route.index}
+      path={route.index ? undefined : route.path}
+      element={wrapRouteElement(route)}
+    >
+      {route.children?.map((childRoute, index) =>
+        renderModularRoute(childRoute, `${routeKey}-${index}-`)
+      )}
+    </Route>
+  );
+}
+
 export default function AppRoutes() {
   const modularRoutes = getAllRoutes();
-  const layoutRoutes = modularRoutes.filter((r) => r.layout && r.protected);
-  const publicOnlyRoutes = modularRoutes.filter((r) => r.publicOnly);
-  const otherProtectedRoutes = modularRoutes.filter((r) => r.protected && !r.layout);
+
+  /**
+   * Rotas públicas:
+   * login, cadastro, recuperação de senha.
+   */
+  const publicOnlyRoutes = modularRoutes.filter((route) => route.publicOnly);
+
+  /**
+   * Rotas protegidas com layout principal.
+   */
+  const layoutRoutes = modularRoutes.filter(
+    (route) => route.layout && route.protected
+  );
+
+  /**
+   * Rotas protegidas sem layout.
+   * Exemplo: impressão.
+   */
+  const otherProtectedRoutes = modularRoutes.filter(
+    (route) => route.protected && !route.layout
+  );
 
   return (
     <Routes>
-      {/* Rotas Públicas */}
-      {publicOnlyRoutes.map((route) => (
-        <React.Fragment key={route.path}>
-          <Route
-            path={route.path}
-            element={<PublicRoute>{route.element}</PublicRoute>}
-          />
-        </React.Fragment>
+      {/* Rotas públicas */}
+      {publicOnlyRoutes.map((route, index) => (
+        <Route
+          key={`${route.path ?? 'public-route'}-${index}`}
+          path={route.path}
+          element={<PublicRoute>{route.element}</PublicRoute>}
+        />
       ))}
 
-      {/* Rotas especiais por status de acesso - sem AppLayout */}
+      {/* Rotas especiais de status de acesso.
+          Nesta etapa elas continuam explícitas porque pertencem ao fluxo-base de autenticação/status. */}
       <Route
         path="/aguardando-liberacao"
         element={
@@ -74,7 +110,7 @@ export default function AppRoutes() {
         }
       />
 
-      {/* Rotas protegidas com layout */}
+      {/* Rotas protegidas que usam AppLayout */}
       <Route
         element={
           <ProtectedRoute>
@@ -82,96 +118,25 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        {layoutRoutes.map((route) => (
-          <React.Fragment key={route.path}>
-            <Route path={route.path} element={route.element} />
-          </React.Fragment>
-        ))}
-
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/atividades" element={<ActivitiesPage />} />
-
-        <Route
-          path="/usuarios"
-          element={
-            <PermissionRoute permission="users_manage">
-              <UserAccessManagementPage />
-            </PermissionRoute>
-          }
-        />
-
-        <Route path="/pacientes" element={<PatientsPage />} />
-        <Route path="/pacientes/novo" element={<PatientFormPage />} />
-        <Route path="/pacientes/:id" element={<PatientDetailPage />} />
-        <Route path="/pacientes/:id/editar" element={<PatientFormPage />} />
-
-        <Route path="/procedimentos" element={<ProceduresPage />} />
-        <Route path="/procedimentos/novo" element={<ProcedureFormPage />} />
-        <Route path="/procedimentos/:id" element={<ProcedureDetailPage />} />
-        <Route path="/procedimentos/:id/editar" element={<ProcedureFormPage />} />
-
-        <Route path="/tratamentos" element={<TreatmentsPage />} />
-        <Route path="/tratamentos/novo" element={<TreatmentFormPage />} />
-        <Route path="/tratamentos/:id" element={<TreatmentDetailPage />} />
-        <Route path="/tratamentos/:id/editar" element={<TreatmentFormPage />} />
-
-        <Route path="/parcelas" element={<InstallmentsPage />} />
-        <Route path="/parcelas/:id" element={<InstallmentDetailPage />} />
-
-        <Route path="/cobrancas" element={<BillingPage />} />
-
-        <Route path="/relatorios" element={<ReportsPage />} />
-        <Route path="/relatorios/:type" element={<ReportViewPage />} />
-
-        <Route
-          path="/configuracoes"
-          element={
-            <PermissionRoute permission="settings_manage">
-              <SettingsPage />
-            </PermissionRoute>
-          }
-        >
-          <Route index element={<Navigate to="/configuracoes/clinica" replace />} />
-          <Route path="clinica" element={<ClinicSettingsPage />} />
-          <Route path="financeiro-pix" element={<FinancialPixSettingsPage />} />
-          <Route path="notificacoes" element={<NotificationsSettingsPage />} />
-          <Route
-            path="permissoes-seguranca"
-            element={<PermissionsSecuritySettingsPage />}
-          />
-        </Route>
-
-        <Route path="/perfil" element={<ProfilePage />} />
+        {layoutRoutes.map((route, index) =>
+          renderModularRoute(route, `layout-${index}-`)
+        )}
       </Route>
 
-      {/* Outras rotas protegidas sem layout */}
-      {otherProtectedRoutes.map((route) => (
-        <React.Fragment key={route.path}>
-          <Route
-            path={route.path}
-            element={<ProtectedRoute>{route.element}</ProtectedRoute>}
-          />
-        </React.Fragment>
+      {/* Rotas protegidas sem layout */}
+      {otherProtectedRoutes.map((route, index) => (
+        <Route
+          key={`${route.path ?? 'protected-route'}-${index}`}
+          path={route.path}
+          element={<ProtectedRoute>{wrapRouteElement(route)}</ProtectedRoute>}
+        >
+          {route.children?.map((childRoute, childIndex) =>
+            renderModularRoute(childRoute, `protected-${index}-${childIndex}-`)
+          )}
+        </Route>
       ))}
 
-      <Route
-        path="/tratamentos/:id/imprimir"
-        element={
-          <ProtectedRoute>
-            <TreatmentPrintPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/relatorios/:type/imprimir"
-        element={
-          <ProtectedRoute>
-            <ReportPrintPage />
-          </ProtectedRoute>
-        }
-      />
-
+      {/* Fallback da aplicação */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

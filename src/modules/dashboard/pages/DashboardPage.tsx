@@ -28,12 +28,18 @@ import {
 } from 'lucide-react';
 import { formatCurrency, cn } from '@/src/lib/utils';
 import { Link } from 'react-router-dom';
-import { supabase } from '@/src/lib/supabase';
 import { getWidgetsBySlot } from '@/src/app/moduleRegistry';
-import { getDashboardMetrics } from '@/src/lib/financialMetrics';
 import { dashboardStatCardDefinitions } from '@/src/modules/dashboard/config/statCards';
-import { resolvePatientName } from '@/src/lib/businessRules';
-import { getNotificationSettings } from '@/src/lib/appSettings';
+import {
+  DashboardNotificationPreferences,
+  DashboardRecentActivity,
+  DashboardReminderState,
+  getDashboardSnapshot,
+} from '@/src/modules/dashboard/services/dashboardSnapshotService';
+// import { supabase } from '@/src/lib/supabase';
+// import { getDashboardMetrics } from '@/src/lib/financialMetrics';
+// import { resolvePatientName } from '@/src/lib/businessRules';
+// import { getNotificationSettings } from '@/src/lib/appSettings';
 
 const RECENT_ACTIVITIES_LIMIT = 5;
 
@@ -103,129 +109,64 @@ export default function DashboardPage() {
   }, []);
 
   async function fetchDashboardData() {
-    setLoading(true);
+  setLoading(true);
 
-    try {
-      const notificationSettings = await getNotificationSettings();
-      const safeAlertDays = Math.max(0, Number(notificationSettings.due_alert_days || '3'));
+  try {
+    const snapshot = await getDashboardSnapshot();
 
-      setNotificationPreferences({
-        dueAlertDays: safeAlertDays,
-        showDashboardAlertSummary: notificationSettings.show_dashboard_alert_summary,
-        enableWhatsappQuickCharge: notificationSettings.enable_whatsapp_quick_charge,
-      });
+    setNotificationPreferences(snapshot.notificationPreferences);
 
-      const metrics = await getDashboardMetrics(safeAlertDays);
+    setStats(
+      dashboardStatCardDefinitions.map((card) => {
+        let value: string | number = 0;
 
-      const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
-        await Promise.all([
-          supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(10),
-          supabase.from('treatments').select('*').order('created_at', { ascending: false }).limit(10),
-          supabase.from('patients').select('*').order('created_at', { ascending: false }).limit(10),
-        ]);
+        switch (card.key) {
+          case 'patients.total':
+            value = snapshot.metrics.patientCount;
+            break;
 
-      setStats(
-  dashboardStatCardDefinitions.map((card) => {
-    let value: string | number = 0;
+          case 'treatments.active':
+            value = snapshot.metrics.activeTreatmentsCount;
+            break;
 
-    switch (card.key) {
-      case 'patients.total':
-        value = metrics.patientCount;
-        break;
+          case 'revenue.month':
+            value = formatCurrency(snapshot.metrics.monthlyRevenue);
+            break;
 
-      case 'treatments.active':
-        value = metrics.activeTreatmentsCount;
-        break;
+          case 'collections.overdue':
+            value = snapshot.metrics.overdueCount;
+            break;
 
-      case 'revenue.month':
-        value = formatCurrency(metrics.monthlyRevenue);
-        break;
+          default:
+            value = 0;
+        }
 
-      case 'collections.overdue':
-        value = metrics.overdueCount;
-        break;
+        return {
+          label: card.label,
+          value,
+          icon: card.icon,
+          color: card.color,
+          to: card.to,
+          helperText: card.helperText,
+          requiredPermission: card.requiredPermission,
+        };
+      })
+    );
 
-      default:
-        value = 0;
-    }
+    setRecentActivities(snapshot.recentActivities);
+    setReminders(snapshot.reminders);
+  } catch (error) {
+    console.error('Error fetching dashboard data:', error);
 
-    return {
-      label: card.label,
-      value,
-      icon: card.icon,
-      color: card.color,
-      to: card.to,
-      helperText: card.helperText,
-      requiredPermission: card.requiredPermission,
-    };
-  })
-);
-
-      const normalizedActivities: RecentActivity[] = [];
-
-      auditLogs?.forEach((log) => {
-        normalizedActivities.push({
-          id: `audit-${log.id}`,
-          type: log.action.includes('payment')
-            ? 'payment'
-            : log.action.includes('treatment')
-            ? 'treatment'
-            : 'patient',
-          patient: log.description?.split(':')?.pop()?.trim() || 'Sistema',
-          description: log.description || log.action,
-          amount: 0,
-          date: new Date(log.created_at).toLocaleString('pt-BR'),
-          rawDate: new Date(log.created_at),
-        });
-      });
-
-      recentTreatments?.forEach((t) => {
-        normalizedActivities.push({
-          id: `treatment-${t.id}`,
-          type: 'treatment',
-          patient: resolvePatientName(t),
-          description: 'Novo tratamento criado',
-          amount: t.total_amount || 0,
-          date: new Date(t.created_at).toLocaleString('pt-BR'),
-          rawDate: new Date(t.created_at),
-        });
-      });
-
-      recentPatients?.forEach((p) => {
-        normalizedActivities.push({
-          id: `patient-${p.id}`,
-          type: 'patient',
-          patient: p.full_name,
-          description: 'Paciente cadastrado',
-          amount: 0,
-          date: new Date(p.created_at).toLocaleString('pt-BR'),
-          rawDate: new Date(p.created_at),
-        });
-      });
-
-      setRecentActivities(
-        normalizedActivities
-          .sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime())
-          .slice(0, RECENT_ACTIVITIES_LIMIT)
-      );
-
-      setReminders({
-        dueWithinAlertDays: metrics.dueWithinAlertDaysCount || 0,
-        overdue: metrics.overdueCount || 0,
-        pendingTreatments: metrics.pendingTreatmentsCount || 0,
-      });
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-
-      setNotificationPreferences({
-        dueAlertDays: 3,
-        showDashboardAlertSummary: true,
-        enableWhatsappQuickCharge: true,
-      });
-    } finally {
-      setLoading(false);
-    }
+    setNotificationPreferences({
+      dueAlertDays: 3,
+      showDashboardAlertSummary: true,
+      enableWhatsappQuickCharge: true,
+    });
+  } finally {
+    setLoading(false);
   }
+}
 
   function getActivityVisual(type: RecentActivity['type']) {
     if (type === 'payment') {

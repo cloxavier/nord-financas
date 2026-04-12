@@ -1,5 +1,6 @@
 import { supabase } from '@/src/lib/supabase';
-import { getDashboardMetrics } from '@/src/lib/financialMetrics';
+import { getOpenReceivablesSummary } from '@/src/domain/receivables/services/receivablesReadService';
+import { getCollectionOperationalSummary } from '@/src/domain/collections/services/collectionsReadService';
 import { resolvePatientName } from '@/src/lib/businessRules';
 import { getNotificationSettings } from '@/src/lib/appSettings';
 
@@ -51,9 +52,18 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     enableWhatsappQuickCharge: notificationSettings.enable_whatsapp_quick_charge,
   };
 
-  const metrics = await getDashboardMetrics(safeAlertDays);
+    const [receivablesSummary, collectionsSummary, patientsResult, treatmentsResult] =
+    await Promise.all([
+      getOpenReceivablesSummary(),
+      getCollectionOperationalSummary(),
+      supabase.from('patients').select('id', { count: 'exact', head: true }),
+      supabase
+        .from('treatments')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['approved', 'active']),
+    ]);
 
-  const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
+    const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
     await Promise.all([
       supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(10),
       supabase.from('treatments').select('*').order('created_at', { ascending: false }).limit(10),
@@ -106,18 +116,18 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     .sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime())
     .slice(0, RECENT_ACTIVITIES_LIMIT);
 
-  const reminders: DashboardReminderState = {
-    dueWithinAlertDays: metrics.dueWithinAlertDaysCount || 0,
-    overdue: metrics.overdueCount || 0,
-    pendingTreatments: metrics.pendingTreatmentsCount || 0,
+    const reminders: DashboardReminderState = {
+    dueWithinAlertDays: 0,
+    overdue: collectionsSummary.overdueInstallmentsCount || 0,
+    pendingTreatments: 0,
   };
 
   return {
-    metrics: {
-      patientCount: metrics.patientCount,
-      activeTreatmentsCount: metrics.activeTreatmentsCount,
-      monthlyRevenue: metrics.monthlyRevenue,
-      overdueCount: metrics.overdueCount,
+      metrics: {
+      patientCount: patientsResult.count || 0,
+      activeTreatmentsCount: treatmentsResult.count || 0,
+      monthlyRevenue: receivablesSummary.totalReceivedThisMonth,
+      overdueCount: collectionsSummary.overdueInstallmentsCount,
     },
     recentActivities,
     reminders,

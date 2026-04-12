@@ -50,10 +50,14 @@ export async function getDashboardMetrics(alertDays = 3) {
     supabase.from('patients').select('*', { count: 'exact', head: true }),
 
     // 2. Tratamentos Ativos
+    // Regra de negócio:
+    // - ativo = somente tratamento realmente em andamento
+    // - pendente fica separado no lembrete "aguardando aprovação"
+    // - rascunho não entra em nenhum dos dois
     supabase
       .from('treatments')
       .select('*', { count: 'exact', head: true })
-      .in('status', ['pending', 'in_progress']),
+      .eq('status', 'in_progress'),
 
     // 3. Receita Mensal
     supabase

@@ -1,6 +1,5 @@
 import { supabase } from '@/src/lib/supabase';
-import { getOpenReceivablesSummary } from '@/src/domain/receivables/services/receivablesReadService';
-import { getCollectionOperationalSummary } from '@/src/domain/collections/services/collectionsReadService';
+import { getDashboardMetrics } from '@/src/lib/financialMetrics';
 import { resolvePatientName } from '@/src/lib/businessRules';
 import { getNotificationSettings } from '@/src/lib/appSettings';
 
@@ -42,8 +41,20 @@ export interface DashboardSnapshot {
   notificationPreferences: DashboardNotificationPreferences;
 }
 
+/**
+ * Busca o snapshot do dashboard a partir das fontes consolidadas do projeto.
+ *
+ * Nesta etapa, a meta é:
+ * - parar de duplicar lógica financeira dentro do dashboard
+ * - usar os status reais de tratamentos já centralizados em financialMetrics
+ * - manter a montagem de atividades recentes neste serviço
+ */
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
   const notificationSettings = await getNotificationSettings();
+
+  /**
+   * Segurança mínima para evitar valor inválido vindo da configuração.
+   */
   const safeAlertDays = Math.max(0, Number(notificationSettings.due_alert_days || '3'));
 
   const notificationPreferences: DashboardNotificationPreferences = {
@@ -52,18 +63,23 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     enableWhatsappQuickCharge: notificationSettings.enable_whatsapp_quick_charge,
   };
 
-    const [receivablesSummary, collectionsSummary, patientsResult, treatmentsResult] =
-    await Promise.all([
-      getOpenReceivablesSummary(),
-      getCollectionOperationalSummary(),
-      supabase.from('patients').select('id', { count: 'exact', head: true }),
-      supabase
-        .from('treatments')
-        .select('id', { count: 'exact', head: true })
-        .in('status', ['approved', 'active']),
-    ]);
+  /**
+   * Métricas financeiras e operacionais centrais.
+   * Esta é a fonte oficial para:
+   * - pacientes
+   * - tratamentos ativos
+   * - recebido no mês
+   * - parcelas em atraso
+   * - vencimentos próximos
+   * - tratamentos pendentes
+   */
+  const dashboardMetrics = await getDashboardMetrics(safeAlertDays);
 
-    const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
+  /**
+   * Atividades recentes continuam sendo montadas aqui,
+   * porque combinam audit logs + tratamentos + pacientes.
+   */
+  const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
     await Promise.all([
       supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(10),
       supabase.from('treatments').select('*').order('created_at', { ascending: false }).limit(10),
@@ -116,18 +132,18 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     .sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime())
     .slice(0, RECENT_ACTIVITIES_LIMIT);
 
-    const reminders: DashboardReminderState = {
-    dueWithinAlertDays: 0,
-    overdue: collectionsSummary.overdueInstallmentsCount || 0,
-    pendingTreatments: 0,
+  const reminders: DashboardReminderState = {
+    dueWithinAlertDays: dashboardMetrics.dueWithinAlertDaysCount || 0,
+    overdue: dashboardMetrics.overdueCount || 0,
+    pendingTreatments: dashboardMetrics.pendingTreatmentsCount || 0,
   };
 
   return {
-      metrics: {
-      patientCount: patientsResult.count || 0,
-      activeTreatmentsCount: treatmentsResult.count || 0,
-      monthlyRevenue: receivablesSummary.totalReceivedThisMonth,
-      overdueCount: collectionsSummary.overdueInstallmentsCount,
+    metrics: {
+      patientCount: dashboardMetrics.patientCount || 0,
+      activeTreatmentsCount: dashboardMetrics.activeTreatmentsCount || 0,
+      monthlyRevenue: dashboardMetrics.monthlyRevenue || 0,
+      overdueCount: dashboardMetrics.overdueCount || 0,
     },
     recentActivities,
     reminders,

@@ -6,7 +6,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { AccessStatus, Profile } from '../types/database';
+import { AccessStatus, Profile, AccessRole } from '../types/database';
 import {
   PermissionKey,
   PermissionMap,
@@ -99,20 +99,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) throw error;
 
-      if (!data) {
-        setProfile(null);
-        return;
-      }
+     if (!data) {
+  setProfile(null);
+  return;
+}
 
-      const resolvedRoleName = data.access_role?.name || getLegacyRoleLabel(data.role);
-      const resolvedRoleSlug = data.access_role?.slug || getLegacyRoleSlug(data.role);
+/**
+ * O relacionamento vindo do select pode ser inferido pelo client
+ * de forma mais ampla do que usamos na aplicação.
+ * Aqui normalizamos para o formato real esperado pelo Profile.
+ */
+const accessRole: AccessRole | null = Array.isArray(data.access_role)
+  ? data.access_role[0] ?? null
+  : data.access_role ?? null;
 
-      const normalizedProfile: Profile = {
-        ...data,
-        access_role: data.access_role ?? null,
-        resolved_role_name: resolvedRoleName,
-        resolved_role_slug: resolvedRoleSlug,
-      };
+const resolvedRoleName = accessRole?.name || getLegacyRoleLabel(data.role);
+const resolvedRoleSlug = accessRole?.slug || getLegacyRoleSlug(data.role);
+
+const normalizedProfile: Profile = {
+  ...data,
+  access_role: accessRole,
+  resolved_role_name: resolvedRoleName,
+  resolved_role_slug: resolvedRoleSlug,
+};
 
       setProfile(normalizedProfile);
     } catch (error) {

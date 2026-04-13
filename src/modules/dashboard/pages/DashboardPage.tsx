@@ -31,15 +31,10 @@ import { Link } from 'react-router-dom';
 import { getWidgetsBySlot } from '@/src/app/moduleRegistry';
 import { dashboardStatCardDefinitions } from '@/src/modules/dashboard/config/statCards';
 import {
-  DashboardNotificationPreferences,
   DashboardRecentActivity,
   DashboardReminderState,
   getDashboardSnapshot,
 } from '@/src/modules/dashboard/services/dashboardSnapshotService';
-// import { supabase } from '@/src/lib/supabase';
-// import { getDashboardMetrics } from '@/src/lib/financialMetrics';
-// import { resolvePatientName } from '@/src/lib/businessRules';
-// import { getNotificationSettings } from '@/src/lib/appSettings';
 
 const RECENT_ACTIVITIES_LIMIT = 5;
 

@@ -1,10 +1,11 @@
+import { type ComponentType } from 'react';
 import { Users, ClipboardList, TrendingUp, AlertCircle } from 'lucide-react';
 import { PermissionKey } from '@/src/lib/permissions';
 
 export interface DashboardStatCardDefinition {
   key: string;
   label: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: ComponentType<{ size?: number; className?: string }>;
   color: string;
   to: string;
   helperText: string;

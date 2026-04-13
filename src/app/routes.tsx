@@ -14,7 +14,7 @@ import { getAllRoutes } from './moduleRegistry';
 /**
  * Aplica proteção por permissão automaticamente quando a rota declarar requiredPermission.
  */
-function wrapRouteElement(route: AppRouteDefinition) {
+function wrapRouteElement(route: AppRouteDefinition): React.ReactNode {
   if (route.requiredPermission) {
     return (
       <PermissionRoute permission={route.requiredPermission}>
@@ -27,26 +27,47 @@ function wrapRouteElement(route: AppRouteDefinition) {
 }
 
 /**
+ * Type guard para rotas que obrigatoriamente possuem path.
+ * Isso ajuda o TypeScript a aceitar corretamente as props do Route.
+ */
+function hasPath(
+  route: AppRouteDefinition
+): route is AppRouteDefinition & { path: string } {
+  return typeof route.path === 'string' && route.path.length > 0;
+}
+
+/**
  * Renderiza recursivamente rotas modulares.
+ * Fazemos o branch explícito entre rota index e rota com path,
+ * porque o Route do react-router usa união de tipos.
  */
 function renderModularRoute(
   route: AppRouteDefinition,
   parentKey = ''
-): React.ReactElement {
+): React.ReactNode {
   const routeKey = route.index
     ? `${parentKey}index`
     : `${parentKey}${route.path ?? 'route-without-path'}`;
 
+  const children = route.children?.map((childRoute, index) =>
+    renderModularRoute(childRoute, `${routeKey}-${index}-`)
+  );
+
+  if (route.index) {
+    return (
+      <Route key={routeKey} index element={wrapRouteElement(route)}>
+        {children}
+      </Route>
+    );
+  }
+
+  if (!hasPath(route)) {
+    return null;
+  }
+
   return (
-    <Route
-      key={routeKey}
-      index={route.index}
-      path={route.index ? undefined : route.path}
-      element={wrapRouteElement(route)}
-    >
-      {route.children?.map((childRoute, index) =>
-        renderModularRoute(childRoute, `${routeKey}-${index}-`)
-      )}
+    <Route key={routeKey} path={route.path} element={wrapRouteElement(route)}>
+      {children}
     </Route>
   );
 }
@@ -58,44 +79,51 @@ export default function AppRoutes() {
    * Rotas públicas:
    * login, cadastro, recuperação de senha.
    */
-  const publicOnlyRoutes = modularRoutes.filter((route) => route.publicOnly);
+  const publicOnlyRoutes = modularRoutes.filter(
+    (route): route is AppRouteDefinition & { path: string } =>
+      !!route.publicOnly && hasPath(route)
+  );
 
   /**
    * Rotas exclusivas para usuário pendente.
    */
   const pendingApprovalOnlyRoutes = modularRoutes.filter(
-    (route) => route.pendingApprovalOnly
+    (route): route is AppRouteDefinition & { path: string } =>
+      !!route.pendingApprovalOnly && hasPath(route)
   );
 
   /**
    * Rotas exclusivas para usuário bloqueado.
    */
   const blockedUserOnlyRoutes = modularRoutes.filter(
-    (route) => route.blockedUserOnly
+    (route): route is AppRouteDefinition & { path: string } =>
+      !!route.blockedUserOnly && hasPath(route)
   );
 
   /**
    * Rotas protegidas com layout principal.
    */
   const layoutRoutes = modularRoutes.filter(
-    (route) =>
-      route.layout &&
-      route.protected &&
+    (route): route is AppRouteDefinition & { path: string } =>
+      !!route.layout &&
+      !!route.protected &&
       !route.publicOnly &&
       !route.pendingApprovalOnly &&
-      !route.blockedUserOnly
+      !route.blockedUserOnly &&
+      hasPath(route)
   );
 
   /**
    * Rotas protegidas sem layout.
    */
   const otherProtectedRoutes = modularRoutes.filter(
-    (route) =>
-      route.protected &&
+    (route): route is AppRouteDefinition & { path: string } =>
+      !!route.protected &&
       !route.layout &&
       !route.publicOnly &&
       !route.pendingApprovalOnly &&
-      !route.blockedUserOnly
+      !route.blockedUserOnly &&
+      hasPath(route)
   );
 
   return (
@@ -103,7 +131,7 @@ export default function AppRoutes() {
       {/* Rotas públicas */}
       {publicOnlyRoutes.map((route, index) => (
         <Route
-          key={`${route.path ?? 'public-route'}-${index}`}
+          key={`${route.path}-${index}`}
           path={route.path}
           element={<PublicRoute>{route.element}</PublicRoute>}
         />
@@ -112,12 +140,10 @@ export default function AppRoutes() {
       {/* Rotas exclusivas para usuário pendente */}
       {pendingApprovalOnlyRoutes.map((route, index) => (
         <Route
-          key={`${route.path ?? 'pending-route'}-${index}`}
+          key={`${route.path}-${index}`}
           path={route.path}
           element={
-            <PendingApprovalRoute>
-              {wrapRouteElement(route)}
-            </PendingApprovalRoute>
+            <PendingApprovalRoute>{wrapRouteElement(route)}</PendingApprovalRoute>
           }
         />
       ))}
@@ -125,12 +151,10 @@ export default function AppRoutes() {
       {/* Rotas exclusivas para usuário bloqueado */}
       {blockedUserOnlyRoutes.map((route, index) => (
         <Route
-          key={`${route.path ?? 'blocked-route'}-${index}`}
+          key={`${route.path}-${index}`}
           path={route.path}
           element={
-            <BlockedUserRoute>
-              {wrapRouteElement(route)}
-            </BlockedUserRoute>
+            <BlockedUserRoute>{wrapRouteElement(route)}</BlockedUserRoute>
           }
         />
       ))}
@@ -151,7 +175,7 @@ export default function AppRoutes() {
       {/* Rotas protegidas sem layout */}
       {otherProtectedRoutes.map((route, index) => (
         <Route
-          key={`${route.path ?? 'protected-route'}-${index}`}
+          key={`${route.path}-${index}`}
           path={route.path}
           element={<ProtectedRoute>{wrapRouteElement(route)}</ProtectedRoute>}
         >

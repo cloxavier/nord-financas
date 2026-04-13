@@ -28,7 +28,6 @@ function wrapRouteElement(route: AppRouteDefinition): React.ReactNode {
 
 /**
  * Type guard para rotas que obrigatoriamente possuem path.
- * Isso ajuda o TypeScript a aceitar corretamente as props do Route.
  */
 function hasPath(
   route: AppRouteDefinition
@@ -38,8 +37,7 @@ function hasPath(
 
 /**
  * Renderiza recursivamente rotas modulares.
- * Fazemos o branch explícito entre rota index e rota com path,
- * porque o Route do react-router usa união de tipos.
+ * O key fica no Fragment, não no Route, para evitar erro de tipagem.
  */
 function renderModularRoute(
   route: AppRouteDefinition,
@@ -54,55 +52,44 @@ function renderModularRoute(
   );
 
   if (route.index) {
-    return (
-      <Route key={routeKey} index element={wrapRouteElement(route)}>
-        {children}
-      </Route>
-    );
-  }
+  return (
+    <React.Fragment key={routeKey}>
+      <Route index element={wrapRouteElement(route)} />
+    </React.Fragment>
+  );
+}
 
   if (!hasPath(route)) {
     return null;
   }
 
   return (
-    <Route key={routeKey} path={route.path} element={wrapRouteElement(route)}>
-      {children}
-    </Route>
+    <React.Fragment key={routeKey}>
+      <Route path={route.path} element={wrapRouteElement(route)}>
+        {children}
+      </Route>
+    </React.Fragment>
   );
 }
 
 export default function AppRoutes() {
   const modularRoutes = getAllRoutes();
 
-  /**
-   * Rotas públicas:
-   * login, cadastro, recuperação de senha.
-   */
   const publicOnlyRoutes = modularRoutes.filter(
     (route): route is AppRouteDefinition & { path: string } =>
       !!route.publicOnly && hasPath(route)
   );
 
-  /**
-   * Rotas exclusivas para usuário pendente.
-   */
   const pendingApprovalOnlyRoutes = modularRoutes.filter(
     (route): route is AppRouteDefinition & { path: string } =>
       !!route.pendingApprovalOnly && hasPath(route)
   );
 
-  /**
-   * Rotas exclusivas para usuário bloqueado.
-   */
   const blockedUserOnlyRoutes = modularRoutes.filter(
     (route): route is AppRouteDefinition & { path: string } =>
       !!route.blockedUserOnly && hasPath(route)
   );
 
-  /**
-   * Rotas protegidas com layout principal.
-   */
   const layoutRoutes = modularRoutes.filter(
     (route): route is AppRouteDefinition & { path: string } =>
       !!route.layout &&
@@ -113,9 +100,6 @@ export default function AppRoutes() {
       hasPath(route)
   );
 
-  /**
-   * Rotas protegidas sem layout.
-   */
   const otherProtectedRoutes = modularRoutes.filter(
     (route): route is AppRouteDefinition & { path: string } =>
       !!route.protected &&
@@ -128,38 +112,37 @@ export default function AppRoutes() {
 
   return (
     <Routes>
-      {/* Rotas públicas */}
       {publicOnlyRoutes.map((route, index) => (
-        <Route
-          key={`${route.path}-${index}`}
-          path={route.path}
-          element={<PublicRoute>{route.element}</PublicRoute>}
-        />
+        <React.Fragment key={`${route.path}-${index}`}>
+          <Route
+            path={route.path}
+            element={<PublicRoute>{route.element}</PublicRoute>}
+          />
+        </React.Fragment>
       ))}
 
-      {/* Rotas exclusivas para usuário pendente */}
       {pendingApprovalOnlyRoutes.map((route, index) => (
-        <Route
-          key={`${route.path}-${index}`}
-          path={route.path}
-          element={
-            <PendingApprovalRoute>{wrapRouteElement(route)}</PendingApprovalRoute>
-          }
-        />
+        <React.Fragment key={`${route.path}-${index}`}>
+          <Route
+            path={route.path}
+            element={
+              <PendingApprovalRoute>{wrapRouteElement(route)}</PendingApprovalRoute>
+            }
+          />
+        </React.Fragment>
       ))}
 
-      {/* Rotas exclusivas para usuário bloqueado */}
       {blockedUserOnlyRoutes.map((route, index) => (
-        <Route
-          key={`${route.path}-${index}`}
-          path={route.path}
-          element={
-            <BlockedUserRoute>{wrapRouteElement(route)}</BlockedUserRoute>
-          }
-        />
+        <React.Fragment key={`${route.path}-${index}`}>
+          <Route
+            path={route.path}
+            element={
+              <BlockedUserRoute>{wrapRouteElement(route)}</BlockedUserRoute>
+            }
+          />
+        </React.Fragment>
       ))}
 
-      {/* Rotas protegidas que usam AppLayout */}
       <Route
         element={
           <ProtectedRoute>
@@ -172,20 +155,19 @@ export default function AppRoutes() {
         )}
       </Route>
 
-      {/* Rotas protegidas sem layout */}
       {otherProtectedRoutes.map((route, index) => (
-        <Route
-          key={`${route.path}-${index}`}
-          path={route.path}
-          element={<ProtectedRoute>{wrapRouteElement(route)}</ProtectedRoute>}
-        >
-          {route.children?.map((childRoute, childIndex) =>
-            renderModularRoute(childRoute, `protected-${index}-${childIndex}-`)
-          )}
-        </Route>
+        <React.Fragment key={`${route.path}-${index}`}>
+          <Route
+            path={route.path}
+            element={<ProtectedRoute>{wrapRouteElement(route)}</ProtectedRoute>}
+          >
+            {route.children?.map((childRoute, childIndex) =>
+              renderModularRoute(childRoute, `protected-${index}-${childIndex}-`)
+            )}
+          </Route>
+        </React.Fragment>
       ))}
 
-      {/* Fallback da aplicação */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

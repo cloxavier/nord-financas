@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
 import { logActivity } from '../lib/activities';
+import { syncExistingPaymentPlanAfterTreatmentChange } from '../domain/paymentPlans/services/paymentPlanGenerationService';
 
 /**
  * Interface para representar um item de tratamento (procedimento).
@@ -72,7 +73,7 @@ export default function TreatmentFormPage() {
     payment_method_preference: '',
     notes: ''
   });
-
+  const [originalTreatmentTotal, setOriginalTreatmentTotal] = useState<number | null>(null);
   // Lista de itens (procedimentos) incluídos no tratamento
   const [items, setItems] = useState<TreatmentItem[]>([]);
   
@@ -115,6 +116,7 @@ export default function TreatmentFormPage() {
         if (tError) throw tError;
 
         if (treatment) {
+          setOriginalTreatmentTotal(treatment.total_amount || 0);
           // Busca itens do tratamento
           const { data: treatmentItems, error: iError } = await supabase
             .from('treatment_items')
@@ -322,9 +324,41 @@ export default function TreatmentFormPage() {
 
       if (itemsError) throw itemsError;
 
+      let paymentPlanSyncMessage: string | null = null;
+
+      if (isEdit && treatmentId && originalTreatmentTotal !== null) {
+        const totalChanged = Math.abs(total - originalTreatmentTotal) > 0.009;
+
+        if (totalChanged) {
+          const syncResult = await syncExistingPaymentPlanAfterTreatmentChange({
+            treatmentId,
+            totalAmount: total,
+          });
+
+          if (syncResult.status === 'blocked') {
+            paymentPlanSyncMessage =
+              syncResult.message ||
+              'Tratamento salvo, mas o plano não foi recalculado automaticamente.';
+          }
+
+          if (syncResult.status === 'synced') {
+            await logActivity(
+              'payment_plan_synced',
+              `Plano de pagamento do tratamento #${treatmentId.slice(0, 8)} recalculado após edição do valor total.`,
+              { entity_id: treatmentId }
+            );
+          }
+        }
+      }
+      
+
       // Verifica se há dados manuais (paciente ou procedimentos) que o usuário pode querer salvar no catálogo
       const manualProcs = items.filter(item => !item.procedure_id);
       
+      if (paymentPlanSyncMessage) {
+  alert(paymentPlanSyncMessage);
+}
+
       if (isManualPatient || manualProcs.length > 0) {
         setSavedTreatmentId(treatmentId);
         setManualProceduresToSave(manualProcs);
@@ -334,6 +368,8 @@ export default function TreatmentFormPage() {
           setShowPatientModal(true);
         } else if (manualProcs.length > 0) {
           setShowProcedureModal(true);
+        } else {
+          navigate(`/tratamentos/${treatmentId}`);
         }
       } else {
         // Se tudo estiver vinculado ao catálogo, redireciona para os detalhes

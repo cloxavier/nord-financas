@@ -3,7 +3,7 @@
  * Exibe informações completas de um tratamento, incluindo itens, parcelas e dados do paciente.
  * Permite gerenciar o plano de pagamento e realizar a exclusão segura do tratamento.
  */
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
@@ -30,6 +30,15 @@ import {
 import { formatCurrency, formatDate } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { resolvePatientName } from '../lib/businessRules';
+import {
+  getPaymentPlanValidationError,
+  generatePaymentPlanPreview,
+  replaceTreatmentPaymentPlan,
+} from '../domain/paymentPlans/services/paymentPlanGenerationService';
+import {
+  PaymentPlanFormValues,
+} from '../domain/paymentPlans/contracts/paymentPlanContracts';
+
 
 export default function TreatmentDetailPage() {
   // Obtém o ID do tratamento da URL
@@ -44,6 +53,7 @@ export default function TreatmentDetailPage() {
   const [items, setItems] = useState<any[]>([]);
   // Parcelas do plano de pagamento
   const [installments, setInstallments] = useState<any[]>([]);
+  const [paymentPlan, setPaymentPlan] = useState<any>(null);
   // Estado de carregamento ao gerar parcelas
   const [isGenerating, setIsGenerating] = useState(false);
   // Erro ao gerar parcelas
@@ -73,17 +83,46 @@ export default function TreatmentDetailPage() {
   const [deleteSuccess, setDeleteSuccess] = useState(false);
 
   // Estado do formulário de geração de parcelas
-  const [installmentForm, setInstallmentForm] = useState({
-    count: 1,
-    firstDueDate: new Date().toISOString().split('T')[0],
-    interval: 'monthly',
-    adjustLast: true
+ const [installmentForm, setInstallmentForm] = useState<PaymentPlanFormValues>({
+  count: 1,
+  firstDueDate: new Date().toISOString().split('T')[0],
+  interval: 'monthly',
+  adjustLast: true
   });
 
   // Busca os dados ao carregar a página ou mudar o ID
   useEffect(() => {
     fetchData();
   }, [id]);
+
+  /**
+ * Preview central do parcelamento.
+ * A página passa a consumir o cálculo vindo do domínio,
+ * e não mais recalcular localmente.
+ */
+const installmentPreview = useMemo(() => {
+  if (!treatment?.total_amount) {
+    return null;
+  }
+
+  try {
+    return generatePaymentPlanPreview({
+      totalAmount: treatment.total_amount,
+      installmentCount: installmentForm.count,
+      firstDueDate: installmentForm.firstDueDate,
+      intervalType: installmentForm.interval,
+      adjustLastInstallment: installmentForm.adjustLast,
+    });
+  } catch {
+    return null;
+  }
+  }, [
+  treatment?.total_amount,
+  installmentForm.count,
+  installmentForm.firstDueDate,
+  installmentForm.interval,
+  installmentForm.adjustLast,
+  ]);
 
   /**
    * Busca todos os dados relacionados ao tratamento (tratamento, itens e parcelas).
@@ -103,16 +142,36 @@ export default function TreatmentDetailPage() {
       setTreatment(tData);
 
       // Busca itens e parcelas em paralelo
-      const [itemsRes, installmentsRes] = await Promise.all([
+      const [itemsRes, installmentsRes, planRes] = await Promise.all([
         supabase.from('treatment_items').select('*').eq('treatment_id', id),
-        supabase.from('installments').select('*').eq('treatment_id', id).order('installment_number', { ascending: true })
+        supabase
+          .from('installments')
+          .select('*')
+          .eq('treatment_id', id)
+          .order('installment_number', { ascending: true }),
+        supabase
+          .from('payment_plans')
+          .select('*')
+          .eq('treatment_id', id)
+          .maybeSingle(),
       ]);
 
       if (itemsRes.error) throw itemsRes.error;
       if (installmentsRes.error) throw installmentsRes.error;
+      if (planRes.error) throw planRes.error;
 
       setItems(itemsRes.data || []);
       setInstallments(installmentsRes.data || []);
+      setPaymentPlan(planRes.data || null);
+
+      if (planRes.data) {
+        setInstallmentForm({
+          count: planRes.data.installment_count || 1,
+          firstDueDate: planRes.data.first_due_date || new Date().toISOString().split('T')[0],
+          interval: planRes.data.interval_type || 'monthly',
+          adjustLast: planRes.data.adjust_last_installment ?? true,
+        });
+      }
 
     } catch (error) {
       console.error('Error fetching treatment details:', error);
@@ -221,111 +280,58 @@ export default function TreatmentDetailPage() {
     }
   };
 
+ 
   /**
    * Gera o plano de parcelamento para o tratamento.
+   * Agora a página delega a regra de cálculo ao serviço central do domínio.
    */
-  const generateInstallments = async () => {
-    if (!id) return;
-    // Validações básicas
-    if (installmentForm.count <= 0) {
-      setGenerateError('Quantidade de parcelas deve ser maior que zero.');
-      return;
-    }
-    if (!installmentForm.firstDueDate) {
-      setGenerateError('Informe a primeira data de vencimento.');
-      return;
-    }
+const generateInstallments = async () => {
+  if (!id) return;
 
-    setIsGenerating(true);
-    setGenerateError(null);
-    try {
-      // Verifica se já existe um plano
-      const { data: existingPlans, error: plansError } = await supabase
-        .from('payment_plans')
-        .select('id')
-        .eq('treatment_id', id);
+  const validationError = getPaymentPlanValidationError({
+    totalAmount: treatment.total_amount,
+    installmentCount: installmentForm.count,
+    firstDueDate: installmentForm.firstDueDate,
+    intervalType: installmentForm.interval,
+    adjustLastInstallment: installmentForm.adjustLast,
+  });
 
-      if (plansError) throw plansError;
+  if (validationError) {
+    setGenerateError(validationError);
+    return;
+  }
 
-      if (existingPlans && existingPlans.length > 0) {
-        if (!window.confirm('Já existe um plano de pagamento. Deseja substituí-lo?')) {
-          setIsGenerating(false);
-          return;
-        }
-        // Remove parcelas e plano existentes antes de gerar novos
-        await supabase.from('installments').delete().eq('treatment_id', id);
-        await supabase.from('payment_plans').delete().eq('treatment_id', id);
-      }
+  setIsGenerating(true);
+  setGenerateError(null);
 
-      // Cria o novo Plano de Pagamento
-      const { data: plan, error: planError } = await supabase
-        .from('payment_plans')
-        .insert([{
-          treatment_id: id,
-          total_value: treatment.total_amount,
-          installment_count: installmentForm.count,
-          first_due_date: installmentForm.firstDueDate,
-          interval_type: installmentForm.interval,
-          created_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
+  try {
+    await replaceTreatmentPaymentPlan({
+      treatmentId: id,
+      totalAmount: treatment.total_amount,
+      installmentCount: installmentForm.count,
+      firstDueDate: installmentForm.firstDueDate,
+      intervalType: installmentForm.interval,
+      adjustLastInstallment: installmentForm.adjustLast,
+    });
 
-      if (planError) throw planError;
+    const { logActivity } = await import('../lib/activities');
+    await logActivity(
+      paymentPlan ? 'installment_recalculated' : 'installment_generated',
+      `${
+        paymentPlan ? 'Plano de pagamento recalculado' : 'Plano de pagamento gerado'
+      } (${installmentForm.count}x) para o tratamento #${id.slice(0, 8)}`,
+      { entity_id: id }
+    );
 
-      // Calcula os valores das parcelas
-      const installmentAmount = Math.floor((treatment.total_amount / installmentForm.count) * 100) / 100;
-      const newInstallments = [];
-      let currentTotal = 0;
-
-      for (let i = 1; i <= installmentForm.count; i++) {
-        // Calcula a data de vencimento com base no intervalo escolhido
-        const dueDate = new Date(installmentForm.firstDueDate + 'T12:00:00');
-        if (installmentForm.interval === 'monthly') {
-          dueDate.setMonth(dueDate.getMonth() + (i - 1));
-        } else if (installmentForm.interval === 'biweekly') {
-          dueDate.setDate(dueDate.getDate() + (i - 1) * 14);
-        } else if (installmentForm.interval === 'weekly') {
-          dueDate.setDate(dueDate.getDate() + (i - 1) * 7);
-        }
-
-        let amount = installmentAmount;
-        // Ajusta a última parcela para compensar arredondamentos
-        if (i === installmentForm.count && installmentForm.adjustLast) {
-          amount = Math.round((treatment.total_amount - currentTotal) * 100) / 100;
-        }
-        currentTotal += amount;
-
-        newInstallments.push({
-          treatment_id: id,
-          payment_plan_id: plan.id,
-          installment_number: i,
-          due_date: dueDate.toISOString().split('T')[0],
-          amount: amount,
-          status: 'pending',
-          created_at: new Date().toISOString()
-        });
-      }
-
-      const { error: instError } = await supabase
-        .from('installments')
-        .insert(newInstallments);
-
-      if (instError) throw instError;
-
-      // Registra a atividade
-      const { logActivity } = await import('../lib/activities');
-      await logActivity('installment_generated', `Plano de pagamento (${installmentForm.count}x) gerado para o tratamento #${id.slice(0, 8)}`, { entity_id: id });
-
-      setShowInstallmentModal(false);
-      fetchData();
-    } catch (error: any) {
-      console.error('Error generating installments:', error);
-      setGenerateError(error.message || 'Erro ao gerar parcelas.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+    setShowInstallmentModal(false);
+    fetchData();
+  } catch (error: any) {
+    console.error('Error generating installments:', error);
+    setGenerateError(error.message || 'Erro ao gerar/recalcular parcelas.');
+  } finally {
+    setIsGenerating(false);
+  }
+};
 
   /**
    * Retorna o badge de status estilizado.
@@ -544,15 +550,16 @@ export default function TreatmentDetailPage() {
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden print:border-none print:shadow-none">
             <div className="px-6 py-4 border-b bg-gray-50/50 flex items-center justify-between print:bg-transparent print:px-0">
               <h3 className="font-bold text-gray-900">Plano de Pagamento</h3>
-              {installments.length === 0 && (
-                <button 
-                  onClick={() => setShowInstallmentModal(true)}
-                  className="inline-flex items-center gap-2 text-sm font-bold text-blue-600 hover:underline print:hidden"
-                >
-                  <Plus size={16} />
-                  Gerar Parcelas
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  setGenerateError(null);
+                  setShowInstallmentModal(true);
+                }}
+                className="inline-flex items-center gap-2 text-sm font-bold text-blue-600 hover:underline print:hidden"
+              >
+                <Plus size={16} />
+                {installments.length === 0 ? 'Gerar Parcelas' : 'Recalcular Parcelas'}
+              </button>
             </div>
             <div className="divide-y">
               {installments.length > 0 ? installments.map((inst) => (
@@ -630,7 +637,9 @@ export default function TreatmentDetailPage() {
                 <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
                   <CreditCard size={24} />
                 </div>
-                <h3 className="text-xl font-bold text-gray-900">Gerar Parcelas</h3>
+                <h3 className="text-xl font-bold text-gray-900">
+                  {installments.length === 0 ? 'Gerar Parcelas' : 'Recalcular Parcelas'}
+                </h3>
               </div>
               <button onClick={() => setShowInstallmentModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
                 <X size={20} />
@@ -700,12 +709,31 @@ export default function TreatmentDetailPage() {
               </div>
 
               <div className="bg-blue-50 p-4 rounded-xl flex gap-3">
-                <Info size={20} className="text-blue-600 shrink-0" />
-                <p className="text-xs text-blue-700 leading-relaxed">
-                  As parcelas serão geradas com o valor de <strong>{formatCurrency(treatment.total_amount / installmentForm.count)}</strong> cada. 
-                  O status inicial será "Pendente".
-                </p>
-              </div>
+                  <Info size={20} className="text-blue-600 shrink-0" />
+                  <div className="text-xs text-blue-700 leading-relaxed space-y-1">
+                    <p>
+                      Valor base das parcelas:{' '}
+                      <strong>
+                        {formatCurrency(installmentPreview?.baseInstallmentAmount || 0)}
+                      </strong>
+                    </p>
+
+                    {installmentPreview?.installments.length ? (
+                      <p>
+                        Última parcela prevista:{' '}
+                        <strong>
+                          {formatCurrency(
+                            installmentPreview.installments[
+                              installmentPreview.installments.length - 1
+                            ].amount
+                          )}
+                        </strong>
+                      </p>
+                    ) : null}
+
+                    <p>O status inicial será "Pendente".</p>
+                  </div>
+                </div>
             </div>
 
             <div className="mt-8 flex gap-3">

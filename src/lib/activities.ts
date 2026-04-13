@@ -8,17 +8,19 @@ import { supabase } from './supabase';
 /**
  * Define os tipos de atividades que podem ser registradas no log de auditoria.
  */
-export type ActivityType = 
-  | 'patient_created'      // Novo paciente cadastrado
-  | 'patient_updated'      // Dados de paciente atualizados
-  | 'treatment_created'    // Novo tratamento/orçamento criado
-  | 'treatment_updated'    // Tratamento atualizado
-  | 'treatment_cancelled'  // Tratamento cancelado
-  | 'treatment_permanently_deleted' // Tratamento excluído permanentemente
-  | 'installment_generated'// Parcelas geradas para um tratamento
-  | 'payment_registered'   // Pagamento de parcela registrado
-  | 'procedure_created'    // Novo procedimento adicionado ao catálogo
-  | 'reminder_sent';       // Lembrete de cobrança enviado
+export type ActivityType =
+  | 'patient_created'                 // Novo paciente cadastrado
+  | 'patient_updated'                 // Dados de paciente atualizados
+  | 'treatment_created'               // Novo tratamento/orçamento criado
+  | 'treatment_updated'               // Tratamento atualizado
+  | 'treatment_cancelled'             // Tratamento cancelado
+  | 'treatment_permanently_deleted'   // Tratamento excluído permanentemente
+  | 'installment_generated'           // Parcelas geradas para um tratamento
+  | 'installment_recalculated'        // Parcelas recalculadas para um tratamento
+  | 'payment_plan_synced'             // Plano recalculado automaticamente após edição do tratamento
+  | 'payment_registered'              // Pagamento de parcela registrado
+  | 'procedure_created'               // Novo procedimento adicionado ao catálogo
+  | 'reminder_sent';                  // Lembrete de cobrança enviado
 
 /**
  * Registra uma atividade no banco de dados Supabase.

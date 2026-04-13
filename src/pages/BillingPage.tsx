@@ -1,7 +1,9 @@
 /**
  * Página de Gestão de Cobranças.
- * Nesta fase, consome a fila operacional real baseada em collection_tasks
- * e permite concluir ou dispensar tarefas pendentes.
+ *
+ * Regra desta fase:
+ * - aba "Em Atraso" = parcelas reais em atraso (fonte canônica)
+ * - aba "Próximos Vencimentos" = fila operacional real de collection_tasks
  */
 import React, { useEffect, useState } from 'react';
 import {
@@ -61,7 +63,9 @@ export default function BillingPage() {
     }
   }
 
-  async function handleCompleteTask(taskId: string) {
+  async function handleCompleteTask(taskId: string | null) {
+    if (!taskId) return;
+
     try {
       setProcessingTaskId(taskId);
       await completeCollectionTask(taskId);
@@ -74,7 +78,9 @@ export default function BillingPage() {
     }
   }
 
-  async function handleDismissTask(taskId: string) {
+  async function handleDismissTask(taskId: string | null) {
+    if (!taskId) return;
+
     const confirmed = window.confirm('Deseja realmente dispensar esta tarefa?');
 
     if (!confirmed) return;
@@ -91,9 +97,16 @@ export default function BillingPage() {
     }
   }
 
-  const filteredRows = rows.filter((row) =>
-    row.patientName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+
+  const filteredRows = rows.filter((row) => {
+    if (!normalizedSearch) return true;
+
+    return (
+      row.patientName.toLowerCase().includes(normalizedSearch) ||
+      (row.treatmentId || '').toLowerCase().includes(normalizedSearch)
+    );
+  });
 
   const getWhatsAppLink = (phone: string, name: string, amount: number, dueDate: string) => {
     const message = `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que sua parcela de ${formatCurrency(amount)} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
@@ -112,7 +125,7 @@ export default function BillingPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Gestão de Cobranças</h1>
           <p className="text-sm text-gray-500">
-            Acompanhe a fila operacional real de cobranças e vencimentos.
+            Acompanhe parcelas em atraso reais e a fila operacional dos próximos vencimentos.
           </p>
         </div>
 
@@ -155,7 +168,7 @@ export default function BillingPage() {
               />
               <input
                 type="text"
-                placeholder="Buscar por paciente..."
+                placeholder="Buscar por paciente ou ID do tratamento..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
@@ -193,7 +206,8 @@ export default function BillingPage() {
                     </tr>
                   ) : filteredRows.length > 0 ? (
                     filteredRows.map((row) => {
-                      const isProcessing = processingTaskId === row.id;
+                      const isProcessing = !!row.taskId && processingTaskId === row.taskId;
+                      const isOperationalTask = row.sourceType === 'task';
 
                       return (
                         <tr key={row.id} className="hover:bg-gray-50 transition-colors">
@@ -208,6 +222,11 @@ export default function BillingPage() {
                                 <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mt-1">
                                   {row.taskTitle}
                                 </p>
+                                {row.treatmentId ? (
+                                  <p className="text-[10px] text-gray-400 mt-0.5">
+                                    Tratamento #{row.treatmentId.slice(0, 8)}
+                                  </p>
+                                ) : null}
                               </div>
                             </div>
                           </td>
@@ -228,9 +247,15 @@ export default function BillingPage() {
                               </span>
                             </div>
 
-                            <p className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">
-                              Programado para {formatDate(row.scheduledFor)}
-                            </p>
+                            {isOperationalTask ? (
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">
+                                Programado para {formatDate(row.scheduledFor)}
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">
+                                Parcela real em atraso
+                              </p>
+                            )}
 
                             {row.isOverdue && (
                               <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5">
@@ -244,7 +269,9 @@ export default function BillingPage() {
                               {formatCurrency(row.amount)}
                             </p>
                             <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">
-                              Tarefa operacional
+                              {isOperationalTask
+                                ? 'Tarefa operacional'
+                                : `Parcela ${row.installmentNumber ?? '-'}`}
                             </p>
                           </td>
 
@@ -275,23 +302,27 @@ export default function BillingPage() {
                                 <Copy size={18} />
                               </button>
 
-                              <button
-                                onClick={() => handleCompleteTask(row.id)}
-                                disabled={isProcessing}
-                                className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                                title="Marcar como concluída"
-                              >
-                                <CheckCircle2 size={18} />
-                              </button>
+                              {isOperationalTask ? (
+                                <>
+                                  <button
+                                    onClick={() => handleCompleteTask(row.taskId)}
+                                    disabled={isProcessing}
+                                    className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                    title="Marcar como concluída"
+                                  >
+                                    <CheckCircle2 size={18} />
+                                  </button>
 
-                              <button
-                                onClick={() => handleDismissTask(row.id)}
-                                disabled={isProcessing}
-                                className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-                                title="Dispensar tarefa"
-                              >
-                                <XCircle size={18} />
-                              </button>
+                                  <button
+                                    onClick={() => handleDismissTask(row.taskId)}
+                                    disabled={isProcessing}
+                                    className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                                    title="Dispensar tarefa"
+                                  >
+                                    <XCircle size={18} />
+                                  </button>
+                                </>
+                              ) : null}
                             </div>
                           </td>
 
@@ -300,6 +331,7 @@ export default function BillingPage() {
                               <Link
                                 to={`/parcelas/${row.installmentId}`}
                                 className="text-gray-400 hover:text-blue-600 transition-colors"
+                                title="Abrir parcela"
                               >
                                 <ExternalLink size={18} />
                               </Link>
@@ -332,7 +364,8 @@ export default function BillingPage() {
                 </div>
               ) : filteredRows.length > 0 ? (
                 filteredRows.map((row) => {
-                  const isProcessing = processingTaskId === row.id;
+                  const isProcessing = !!row.taskId && processingTaskId === row.taskId;
+                  const isOperationalTask = row.sourceType === 'task';
 
                   return (
                     <div key={row.id} className="p-4 space-y-4">
@@ -347,6 +380,11 @@ export default function BillingPage() {
                             <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mt-1">
                               {row.taskTitle}
                             </p>
+                            {row.treatmentId ? (
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                Tratamento #{row.treatmentId.slice(0, 8)}
+                              </p>
+                            ) : null}
                           </div>
                         </div>
 
@@ -380,7 +418,9 @@ export default function BillingPage() {
                             </span>
                           </div>
                           <p className="text-[10px] text-gray-400 mt-1">
-                            Programado para {formatDate(row.scheduledFor)}
+                            {isOperationalTask
+                              ? `Programado para ${formatDate(row.scheduledFor)}`
+                              : 'Parcela real em atraso'}
                           </p>
                         </div>
 
@@ -419,23 +459,27 @@ export default function BillingPage() {
                           <Copy size={16} />
                         </button>
 
-                        <button
-                          onClick={() => handleCompleteTask(row.id)}
-                          disabled={isProcessing}
-                          className="p-2 bg-emerald-50 text-emerald-600 rounded-lg disabled:opacity-50"
-                          title="Concluir"
-                        >
-                          <CheckCircle2 size={16} />
-                        </button>
+                        {isOperationalTask ? (
+                          <>
+                            <button
+                              onClick={() => handleCompleteTask(row.taskId)}
+                              disabled={isProcessing}
+                              className="p-2 bg-emerald-50 text-emerald-600 rounded-lg disabled:opacity-50"
+                              title="Concluir"
+                            >
+                              <CheckCircle2 size={16} />
+                            </button>
 
-                        <button
-                          onClick={() => handleDismissTask(row.id)}
-                          disabled={isProcessing}
-                          className="p-2 bg-gray-100 text-gray-600 rounded-lg disabled:opacity-50"
-                          title="Dispensar"
-                        >
-                          <XCircle size={16} />
-                        </button>
+                            <button
+                              onClick={() => handleDismissTask(row.taskId)}
+                              disabled={isProcessing}
+                              className="p-2 bg-gray-100 text-gray-600 rounded-lg disabled:opacity-50"
+                              title="Dispensar"
+                            >
+                              <XCircle size={16} />
+                            </button>
+                          </>
+                        ) : null}
 
                         {row.isOverdue && (
                           <span className="px-2 py-1 bg-red-100 text-red-600 text-[10px] font-bold rounded uppercase">

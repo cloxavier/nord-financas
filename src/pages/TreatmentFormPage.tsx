@@ -66,14 +66,21 @@ export default function TreatmentFormPage() {
   });
 
   // Estado principal do formulário de tratamento
-  const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState({
     patient_id: initialPatientId || '',
     status: 'draft',
     discount_amount: 0,
+    entry_amount: 0,
     payment_method_preference: '',
     notes: ''
   });
-  const [originalTreatmentTotal, setOriginalTreatmentTotal] = useState<number | null>(null);
+
+  /**
+   * Guardamos a base financeira original do plano,
+   * ou seja, o saldo realmente parcelável antes da edição.
+   */
+  const [originalTreatmentFinanceBase, setOriginalTreatmentFinanceBase] = useState<number | null>(null);
+
   // Lista de itens (procedimentos) incluídos no tratamento
   const [items, setItems] = useState<TreatmentItem[]>([]);
   
@@ -116,7 +123,9 @@ export default function TreatmentFormPage() {
         if (tError) throw tError;
 
         if (treatment) {
-          setOriginalTreatmentTotal(treatment.total_amount || 0);
+            setOriginalTreatmentFinanceBase(
+            treatment.amount_to_finance ?? treatment.total_amount ?? 0
+        );
           // Busca itens do tratamento
           const { data: treatmentItems, error: iError } = await supabase
             .from('treatment_items')
@@ -136,10 +145,11 @@ export default function TreatmentFormPage() {
           }
 
           // Preenche o estado do formulário com os dados recuperados
-          setFormData({
+            setFormData({
             patient_id: treatment.patient_id || '',
             status: treatment.status,
             discount_amount: treatment.discount_amount || 0,
+            entry_amount: treatment.entry_amount || 0,
             payment_method_preference: treatment.payment_method_preference || '',
             notes: treatment.notes || ''
           });
@@ -222,8 +232,18 @@ export default function TreatmentFormPage() {
   };
 
   // Cálculos financeiros derivados do estado dos itens e do formulário
+    /**
+   * Base financeira do tratamento nesta fase:
+   * - subtotal: soma dos procedimentos
+   * - contractedTotal: total contratado após desconto
+   * - entryAmount: entrada negociada
+   * - amountToFinance: saldo usado como base do parcelamento
+   */
   const subtotal = items.reduce((sum, item) => sum + (item.line_total || 0), 0);
-  const total = subtotal - (formData.discount_amount || 0);
+  const discountAmount = Math.max(0, Number(formData.discount_amount || 0));
+  const contractedTotal = Math.max(0, subtotal - discountAmount);
+  const entryAmount = Math.max(0, Number(formData.entry_amount || 0));
+  const amountToFinance = Math.max(0, contractedTotal - entryAmount);
 
   /**
    * Lida com a submissão do formulário (Criação ou Edição).
@@ -239,6 +259,14 @@ export default function TreatmentFormPage() {
     // Valida se todos os itens manuais possuem nome e valor válido
     const invalidItem = items.find(item => !item.procedure_name_snapshot || item.unit_price_snapshot <= 0);
     if (invalidItem) return alert('Todos os procedimentos devem ter nome e valor maior que zero.');
+
+    if (discountAmount > subtotal) {
+      return alert('O desconto não pode ser maior que o subtotal.');
+    }
+
+    if (entryAmount > contractedTotal) {
+      return alert('A entrada não pode ser maior que o valor total do tratamento.');
+    }
 
     setSaving(true);
     
@@ -260,14 +288,17 @@ export default function TreatmentFormPage() {
 
     try {
       // Prepara o objeto de dados do tratamento para salvar
-      const treatmentData: any = {
+        const treatmentData: any = {
         ...formData,
         patient_id: isManualPatient ? null : formData.patient_id,
         patient_name_snapshot: patientName,
         patient_phone_snapshot: patientPhone,
         patient_email_snapshot: patientEmail,
+        discount_amount: discountAmount,
+        entry_amount: entryAmount,
         subtotal,
-        total_amount: total,
+        total_amount: contractedTotal,
+        amount_to_finance: amountToFinance,
         updated_at: new Date().toISOString()
       };
 
@@ -304,7 +335,11 @@ export default function TreatmentFormPage() {
         treatmentId = newTreatment.id;
         
         // Registra a atividade de criação
-        await logActivity('treatment_created', `Tratamento para ${patientName} criado no valor de ${formatCurrency(total)}`, { entity_id: treatmentId });
+                await logActivity(
+          'treatment_created',
+          `Tratamento para ${patientName} criado no valor de ${formatCurrency(contractedTotal)}`,
+          { entity_id: treatmentId }
+        );
       }
 
       // Prepara e insere os itens do tratamento
@@ -326,13 +361,14 @@ export default function TreatmentFormPage() {
 
       let paymentPlanSyncMessage: string | null = null;
 
-      if (isEdit && treatmentId && originalTreatmentTotal !== null) {
-        const totalChanged = Math.abs(total - originalTreatmentTotal) > 0.009;
+      if (isEdit && treatmentId && originalTreatmentFinanceBase !== null) {
+        const financeBaseChanged =
+          Math.abs(amountToFinance - originalTreatmentFinanceBase) > 0.009;
 
-        if (totalChanged) {
+        if (financeBaseChanged) {
           const syncResult = await syncExistingPaymentPlanAfterTreatmentChange({
             treatmentId,
-            totalAmount: total,
+            amountToFinance,
           });
 
           if (syncResult.status === 'blocked') {
@@ -693,11 +729,12 @@ export default function TreatmentFormPage() {
               <Calculator size={18} className="text-blue-600" />
               Resumo Financeiro
             </h3>
-            <div className="space-y-4">
+                        <div className="space-y-4">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Subtotal</span>
                 <span className="font-medium text-gray-900">{formatCurrency(subtotal)}</span>
               </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-gray-500">Desconto (R$)</label>
                 <input
@@ -708,9 +745,37 @@ export default function TreatmentFormPage() {
                   className="w-full px-3 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold"
                 />
               </div>
+
+              <div className="flex justify-between text-sm">
+                <span className="font-medium text-gray-500">Total Contratado</span>
+                <span className="font-bold text-gray-900">{formatCurrency(contractedTotal)}</span>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-sm text-gray-500">Entrada (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.entry_amount ?? ''}
+                  onChange={e => setFormData({...formData, entry_amount: parseFloat(e.target.value) || 0})}
+                  className="w-full px-3 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold"
+                />
+                <p className="text-[11px] text-gray-400">
+                  Nesta fase, a entrada é contratual e reduz o saldo do parcelamento.
+                </p>
+              </div>
+
               <div className="pt-4 border-t flex justify-between items-center">
-                <span className="font-bold text-gray-900">Total</span>
-                <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+                <div>
+                  <span className="font-bold text-gray-900 block">Saldo a Parcelar</span>
+                  <span className="text-[11px] text-gray-400">
+                    Base usada para gerar as parcelas
+                  </span>
+                </div>
+                <span className="text-2xl font-bold text-blue-600">
+                  {formatCurrency(amountToFinance)}
+                </span>
               </div>
             </div>
 

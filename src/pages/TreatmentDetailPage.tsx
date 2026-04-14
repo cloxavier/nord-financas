@@ -100,14 +100,19 @@ export default function TreatmentDetailPage() {
  * A página passa a consumir o cálculo vindo do domínio,
  * e não mais recalcular localmente.
  */
+const contractedTotal = treatment?.total_amount || 0;
+const entryAmount = treatment?.entry_amount || 0;
+const amountToFinance =
+  treatment?.amount_to_finance ?? Math.max(contractedTotal - entryAmount, 0);
+
 const installmentPreview = useMemo(() => {
-  if (!treatment?.total_amount) {
+  if (amountToFinance <= 0) {
     return null;
   }
 
   try {
     return generatePaymentPlanPreview({
-      totalAmount: treatment.total_amount,
+      amountToFinance,
       installmentCount: installmentForm.count,
       firstDueDate: installmentForm.firstDueDate,
       intervalType: installmentForm.interval,
@@ -117,7 +122,7 @@ const installmentPreview = useMemo(() => {
     return null;
   }
   }, [
-  treatment?.total_amount,
+  amountToFinance,
   installmentForm.count,
   installmentForm.firstDueDate,
   installmentForm.interval,
@@ -288,8 +293,8 @@ const installmentPreview = useMemo(() => {
 const generateInstallments = async () => {
   if (!id) return;
 
-  const validationError = getPaymentPlanValidationError({
-    totalAmount: treatment.total_amount,
+    const validationError = getPaymentPlanValidationError({
+    amountToFinance,
     installmentCount: installmentForm.count,
     firstDueDate: installmentForm.firstDueDate,
     intervalType: installmentForm.interval,
@@ -305,9 +310,9 @@ const generateInstallments = async () => {
   setGenerateError(null);
 
   try {
-    await replaceTreatmentPaymentPlan({
+        await replaceTreatmentPaymentPlan({
       treatmentId: id,
-      totalAmount: treatment.total_amount,
+      amountToFinance,
       installmentCount: installmentForm.count,
       firstDueDate: installmentForm.firstDueDate,
       intervalType: installmentForm.interval,
@@ -528,20 +533,49 @@ const generateInstallments = async () => {
               )}
             </div>
 
-            <div className="bg-gray-50/50 p-4 space-y-2 print:bg-transparent print:px-0">
+                        <div className="bg-gray-50/50 p-4 space-y-2 print:bg-transparent print:px-0">
               <div className="flex justify-between text-sm">
                 <span className="font-medium text-gray-500">Subtotal</span>
                 <span className="font-bold text-gray-900">{formatCurrency(treatment.subtotal)}</span>
               </div>
+
               {treatment.discount_amount > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-red-500">Desconto</span>
-                  <span className="font-bold text-red-500">-{formatCurrency(treatment.discount_amount)}</span>
+                  <span className="font-bold text-red-500">
+                    -{formatCurrency(treatment.discount_amount)}
+                  </span>
                 </div>
               )}
+
+              <div className="flex justify-between text-sm">
+                <span className="font-medium text-gray-500">Total Contratado</span>
+                <span className="font-bold text-gray-900">
+                  {formatCurrency(contractedTotal)}
+                </span>
+              </div>
+
+              {entryAmount > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium text-gray-500">Entrada</span>
+                  <span className="font-bold text-gray-900">
+                    {formatCurrency(entryAmount)}
+                  </span>
+                </div>
+              )}
+
               <div className="pt-2 border-t-2 border-gray-200 flex justify-between items-center">
-                <span className="text-base font-bold text-gray-900">Total</span>
-                <span className="text-xl font-bold text-blue-600">{formatCurrency(treatment.total_amount)}</span>
+                <div>
+                  <span className="text-base font-bold text-gray-900 block">
+                    Saldo a Parcelar
+                  </span>
+                  <span className="text-[11px] text-gray-400">
+                    Base atual do plano de pagamento
+                  </span>
+                </div>
+                <span className="text-xl font-bold text-blue-600">
+                  {formatCurrency(amountToFinance)}
+                </span>
               </div>
             </div>
           </div>
@@ -550,16 +584,18 @@ const generateInstallments = async () => {
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden print:border-none print:shadow-none">
             <div className="px-6 py-4 border-b bg-gray-50/50 flex items-center justify-between print:bg-transparent print:px-0">
               <h3 className="font-bold text-gray-900">Plano de Pagamento</h3>
-              <button
-                onClick={() => {
-                  setGenerateError(null);
-                  setShowInstallmentModal(true);
-                }}
-                className="inline-flex items-center gap-2 text-sm font-bold text-blue-600 hover:underline print:hidden"
-              >
-                <Plus size={16} />
-                {installments.length === 0 ? 'Gerar Parcelas' : 'Recalcular Parcelas'}
-              </button>
+                            {amountToFinance > 0 && (
+                <button
+                  onClick={() => {
+                    setGenerateError(null);
+                    setShowInstallmentModal(true);
+                  }}
+                  className="inline-flex items-center gap-2 text-sm font-bold text-blue-600 hover:underline print:hidden"
+                >
+                  <Plus size={16} />
+                  {installments.length === 0 ? 'Gerar Parcelas' : 'Recalcular Parcelas'}
+                </button>
+              )}
             </div>
             <div className="divide-y">
               {installments.length > 0 ? installments.map((inst) => (
@@ -595,8 +631,12 @@ const generateInstallments = async () => {
                   </div>
                 </div>
               )) : (
-                <div className="px-6 py-12 text-center print:hidden">
-                  <p className="text-gray-500">Nenhum plano de pagamento gerado para este tratamento.</p>
+                                <div className="px-6 py-12 text-center print:hidden">
+                  <p className="text-gray-500">
+                    {amountToFinance > 0
+                      ? 'Nenhum plano de pagamento gerado para este tratamento.'
+                      : 'Este tratamento não possui saldo a parcelar. A entrada cobre todo o valor contratado.'}
+                  </p>
                 </div>
               )}
             </div>
@@ -654,10 +694,15 @@ const generateInstallments = async () => {
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Valor Total</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Saldo a Parcelar
+                </label>
                 <div className="w-full px-4 py-2 bg-gray-50 border rounded-lg font-bold text-gray-900">
-                  {formatCurrency(treatment.total_amount)}
+                  {formatCurrency(amountToFinance)}
                 </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  O plano é gerado sobre o saldo restante após desconto e entrada.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

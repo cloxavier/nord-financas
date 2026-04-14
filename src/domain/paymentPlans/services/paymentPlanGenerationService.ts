@@ -8,10 +8,17 @@ import {
   SyncExistingPaymentPlanResult,
 } from '../contracts/paymentPlanContracts';
 
+/**
+ * Arredonda valor monetário em duas casas.
+ */
 function roundCurrency(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * Trunca valor monetário em duas casas.
+ * Mantemos para preservar a lógica atual de ajuste da última parcela.
+ */
 function floorCurrency(value: number) {
   return Math.floor((value + Number.EPSILON) * 100) / 100;
 }
@@ -44,11 +51,14 @@ function buildDueDate(
   return nextDate;
 }
 
+/**
+ * Valida o plano de pagamento quando existir saldo a parcelar.
+ */
 export function getPaymentPlanValidationError(
   input: PaymentPlanGenerationInput
 ): string | null {
-  if (!Number.isFinite(input.totalAmount) || input.totalAmount <= 0) {
-    return 'O valor total do tratamento deve ser maior que zero.';
+  if (!Number.isFinite(input.amountToFinance) || input.amountToFinance <= 0) {
+    return 'Não há saldo a parcelar para gerar parcelas.';
   }
 
   if (!Number.isFinite(input.installmentCount) || input.installmentCount <= 0) {
@@ -71,6 +81,9 @@ export function getPaymentPlanValidationError(
   return null;
 }
 
+/**
+ * Gera o preview do parcelamento com base no saldo parcelável.
+ */
 export function generatePaymentPlanPreview(
   input: PaymentPlanGenerationInput
 ): PaymentPlanGenerationPreview {
@@ -84,9 +97,11 @@ export function generatePaymentPlanPreview(
     throw new Error('A primeira data de vencimento é inválida.');
   }
 
-  const safeTotalAmount = roundCurrency(input.totalAmount);
+  const safeAmountToFinance = roundCurrency(input.amountToFinance);
   const safeInstallmentCount = Math.max(1, Math.floor(input.installmentCount));
-  const baseInstallmentAmount = floorCurrency(safeTotalAmount / safeInstallmentCount);
+  const baseInstallmentAmount = floorCurrency(
+    safeAmountToFinance / safeInstallmentCount
+  );
 
   const installments = [];
   let accumulatedAmount = 0;
@@ -98,7 +113,7 @@ export function generatePaymentPlanPreview(
     let amount = baseInstallmentAmount;
 
     if (installmentNumber === safeInstallmentCount && input.adjustLastInstallment) {
-      amount = roundCurrency(safeTotalAmount - accumulatedAmount);
+      amount = roundCurrency(safeAmountToFinance - accumulatedAmount);
     }
 
     accumulatedAmount += amount;
@@ -120,19 +135,56 @@ export function generatePaymentPlanPreview(
   };
 }
 
+/**
+ * Substitui ou limpa o plano de pagamento do tratamento.
+ *
+ * Regras desta fase:
+ * - se amountToFinance > 0, recria o plano normalmente
+ * - se amountToFinance = 0, limpa o plano existente
+ */
 export async function replaceTreatmentPaymentPlan(
   input: ReplaceTreatmentPaymentPlanInput
-) {
-  const validationError = getPaymentPlanValidationError(input);
+): Promise<PaymentPlanGenerationPreview | null> {
+  const safeAmountToFinance = roundCurrency(
+    Math.max(0, Number(input.amountToFinance || 0))
+  );
+
+  /**
+   * Quando não há saldo a parcelar, apenas limpamos o plano.
+   * Isso evita deixar parcelas antigas presas a um tratamento quitado na entrada.
+   */
+  if (safeAmountToFinance === 0) {
+    const { error } = await supabase.rpc('replace_treatment_payment_plan', {
+      p_treatment_id: input.treatmentId,
+      p_total_amount: 0,
+      p_installment_count: Math.max(1, input.installmentCount),
+      p_first_due_date: input.firstDueDate,
+      p_interval_type: input.intervalType,
+      p_adjust_last_installment: input.adjustLastInstallment,
+    });
+
+    if (error) throw error;
+
+    return null;
+  }
+
+  const validationError = getPaymentPlanValidationError({
+    ...input,
+    amountToFinance: safeAmountToFinance,
+  });
+
   if (validationError) {
     throw new Error(validationError);
   }
 
-  const preview = generatePaymentPlanPreview(input);
+  const preview = generatePaymentPlanPreview({
+    ...input,
+    amountToFinance: safeAmountToFinance,
+  });
 
   const { error } = await supabase.rpc('replace_treatment_payment_plan', {
     p_treatment_id: input.treatmentId,
-    p_total_amount: input.totalAmount,
+    p_total_amount: safeAmountToFinance,
     p_installment_count: input.installmentCount,
     p_first_due_date: input.firstDueDate,
     p_interval_type: input.intervalType,
@@ -144,9 +196,13 @@ export async function replaceTreatmentPaymentPlan(
   return preview;
 }
 
+/**
+ * Sincroniza o plano existente depois que o tratamento muda.
+ * A sincronização agora observa o saldo parcelável.
+ */
 export async function syncExistingPaymentPlanAfterTreatmentChange(args: {
   treatmentId: string;
-  totalAmount: number;
+  amountToFinance: number;
 }): Promise<SyncExistingPaymentPlanResult> {
   const { data: existingPlan, error } = await supabase
     .from('payment_plans')
@@ -165,7 +221,7 @@ export async function syncExistingPaymentPlanAfterTreatmentChange(args: {
   try {
     await replaceTreatmentPaymentPlan({
       treatmentId: args.treatmentId,
-      totalAmount: args.totalAmount,
+      amountToFinance: Math.max(0, args.amountToFinance),
       installmentCount: existingPlan.installment_count,
       firstDueDate: existingPlan.first_due_date,
       intervalType: existingPlan.interval_type,

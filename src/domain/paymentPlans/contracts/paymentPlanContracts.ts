@@ -12,10 +12,12 @@ export interface PaymentPlanFormValues {
 }
 
 /**
- * Entrada normalizada usada pelo serviço central de geração/recalculo.
+ * Entrada normalizada do domínio de parcelamento.
+ * Nesta fase, o plano passa a nascer do saldo parcelável,
+ * e não mais do total contratado do tratamento.
  */
 export interface PaymentPlanGenerationInput {
-  totalAmount: number;
+  amountToFinance: number;
   installmentCount: number;
   firstDueDate: string;
   intervalType: PaymentPlanIntervalType;

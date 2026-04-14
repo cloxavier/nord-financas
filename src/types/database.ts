@@ -70,6 +70,8 @@ export interface Treatment {
   subtotal: number;
   discount_amount: number;
   total_amount: number;
+  entry_amount: number;
+  amount_to_finance: number;
   payment_method_preference: string;
   notes: string;
   created_by: string;

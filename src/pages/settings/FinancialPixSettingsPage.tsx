@@ -5,13 +5,22 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Loader2, Save, RefreshCcw, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  CreditCard,
+  Loader2,
+  Save,
+  RefreshCcw,
+  CheckCircle2,
+  AlertCircle,
+  Percent,
+} from 'lucide-react';
 import {
   EMPTY_FINANCIAL_PIX_SETTINGS,
   FinancialPixSettingsFormData,
   getFinancialPixSettings,
   saveFinancialPixSettings,
 } from '@/src/lib/appSettings';
+import { buildLateRuleDescription } from '@/src/lib/lateChargeRules';
 
 const PIX_KEY_TYPE_OPTIONS = [
   { value: '', label: 'Selecione o tipo da chave' },
@@ -34,16 +43,10 @@ export default function FinancialPixSettingsPage() {
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
 
-  /**
-   * Carrega os dados atuais assim que a página é aberta.
-   */
   useEffect(() => {
     fetchSettings();
   }, []);
 
-  /**
-   * Busca os dados atuais da tabela app_settings.
-   */
   async function fetchSettings() {
     setLoading(true);
     setLoadError('');
@@ -52,13 +55,7 @@ export default function FinancialPixSettingsPage() {
 
     try {
       const data = await getFinancialPixSettings();
-      setForm({
-        pix_key_type: data.pix_key_type,
-        pix_key: data.pix_key,
-        beneficiary_name: data.beneficiary_name,
-        default_payment_instructions: data.default_payment_instructions,
-        default_contract_notes: data.default_contract_notes,
-      });
+      setForm(data);
       setSettingsId(data.id);
       setUpdatedAt(data.updated_at);
     } catch (error: any) {
@@ -71,9 +68,6 @@ export default function FinancialPixSettingsPage() {
     }
   }
 
-  /**
-   * Atualiza qualquer campo do formulário de forma genérica.
-   */
   function updateField<K extends keyof FinancialPixSettingsFormData>(
     field: K,
     value: FinancialPixSettingsFormData[K]
@@ -84,9 +78,6 @@ export default function FinancialPixSettingsPage() {
     }));
   }
 
-  /**
-   * Salva os dados atuais no Supabase.
-   */
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -108,13 +99,21 @@ export default function FinancialPixSettingsPage() {
     }
   }
 
-  /**
-   * Texto amigável da última atualização, se existir.
-   */
   const updatedAtLabel = useMemo(() => {
     if (!updatedAt) return 'Ainda não há salvamento registrado.';
     return `Última atualização: ${new Date(updatedAt).toLocaleString('pt-BR')}`;
   }, [updatedAt]);
+
+  const lateRulePreview = useMemo(() => {
+    return buildLateRuleDescription({
+      late_fee_enabled: form.default_late_fee_enabled,
+      late_fee_percent: Number(form.default_late_fee_percent || 0),
+      interest_enabled: form.default_interest_enabled,
+      interest_percent: Number(form.default_interest_percent || 0),
+      interest_period: form.default_interest_period,
+      late_fee_notes: form.default_late_fee_notes,
+    });
+  }, [form]);
 
   if (loading) {
     return (
@@ -129,12 +128,11 @@ export default function FinancialPixSettingsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Cabeçalho da seção */}
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Financeiro & Pix</h2>
           <p className="text-sm text-gray-500 mt-1">
-            Configure os dados básicos que serão usados em cobranças, recebimentos e rotinas financeiras.
+            Configure os dados financeiros centrais da clínica, incluindo o padrão de multa e juros por atraso.
           </p>
         </div>
 
@@ -143,7 +141,6 @@ export default function FinancialPixSettingsPage() {
         </div>
       </div>
 
-      {/* Mensagem de erro de carregamento */}
       {loadError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex gap-3">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
@@ -151,7 +148,6 @@ export default function FinancialPixSettingsPage() {
         </div>
       )}
 
-      {/* Formulário principal */}
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="rounded-xl border bg-white p-5 md:p-6 shadow-sm">
           <div className="flex items-start gap-4 mb-6">
@@ -162,14 +158,12 @@ export default function FinancialPixSettingsPage() {
             <div>
               <h3 className="text-base font-semibold text-gray-900">Dados financeiros básicos</h3>
               <p className="text-sm text-gray-500 mt-1 leading-6 max-w-2xl">
-                Nesta etapa, vamos salvar as informações centrais de Pix e os textos padrão que apoiarão
-                futuras cobranças e recibos.
+                Dados de Pix e textos padrão que apoiam cobranças, recebimentos e documentos financeiros.
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {/* Tipo da chave Pix */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Tipo de chave Pix
@@ -187,7 +181,6 @@ export default function FinancialPixSettingsPage() {
               </select>
             </div>
 
-            {/* Chave Pix */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Chave Pix da clínica
@@ -201,7 +194,6 @@ export default function FinancialPixSettingsPage() {
               />
             </div>
 
-            {/* Nome do recebedor */}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Nome do recebedor / beneficiário
@@ -215,7 +207,6 @@ export default function FinancialPixSettingsPage() {
               />
             </div>
 
-            {/* Instrução padrão de pagamento */}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Instrução padrão de pagamento
@@ -227,12 +218,8 @@ export default function FinancialPixSettingsPage() {
                 className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-y"
                 placeholder="Ex.: Após o pagamento, envie o comprovante para confirmação."
               />
-              <p className="text-xs text-gray-500 mt-1.5">
-                Este texto poderá ser usado futuramente em cobranças, recibos e mensagens financeiras.
-              </p>
             </div>
 
-            {/* Observação padrão de cobrança */}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Observação padrão de cobrança
@@ -244,14 +231,130 @@ export default function FinancialPixSettingsPage() {
                 className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-y"
                 placeholder="Ex.: Em caso de dúvida, entre em contato com a clínica para alinharmos a melhor forma de pagamento."
               />
-              <p className="text-xs text-gray-500 mt-1.5">
-                Use este campo para uma observação recorrente e profissional nas rotinas de cobrança.
-              </p>
             </div>
           </div>
         </div>
 
-        {/* Feedback visual de salvamento */}
+        <div className="rounded-xl border bg-white p-5 md:p-6 shadow-sm">
+          <div className="flex items-start gap-4 mb-6">
+            <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100">
+              <Percent size={22} />
+            </div>
+
+            <div>
+              <h3 className="text-base font-semibold text-gray-900">Encargos padrão por atraso</h3>
+              <p className="text-sm text-gray-500 mt-1 leading-6 max-w-2xl">
+                Estas regras serão sugeridas por padrão nos novos tratamentos, mas cada tratamento poderá personalizar o snapshot.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="rounded-xl border p-4 space-y-3">
+              <label className="inline-flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.default_late_fee_enabled}
+                  onChange={(e) => updateField('default_late_fee_enabled', e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm font-semibold text-gray-800">
+                  Ativar multa por atraso
+                </span>
+              </label>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Multa padrão (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={form.default_late_fee_percent}
+                  onChange={(e) => updateField('default_late_fee_percent', e.target.value)}
+                  disabled={!form.default_late_fee_enabled}
+                  className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border p-4 space-y-3">
+              <label className="inline-flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.default_interest_enabled}
+                  onChange={(e) => updateField('default_interest_enabled', e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm font-semibold text-gray-800">
+                  Ativar juros por atraso
+                </span>
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Juros padrão (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={form.default_interest_percent}
+                    onChange={(e) => updateField('default_interest_percent', e.target.value)}
+                    disabled={!form.default_interest_enabled}
+                    className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Período
+                  </label>
+                  <select
+                    value={form.default_interest_period}
+                    onChange={(e) =>
+                      updateField(
+                        'default_interest_period',
+                        e.target.value as 'monthly' | 'daily'
+                      )
+                    }
+                    disabled={!form.default_interest_enabled}
+                    className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    <option value="monthly">Ao mês</option>
+                    <option value="daily">Ao dia</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Texto padrão das condições de atraso
+              </label>
+              <textarea
+                value={form.default_late_fee_notes}
+                onChange={(e) => updateField('default_late_fee_notes', e.target.value)}
+                rows={4}
+                className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-y"
+                placeholder="Ex.: Em caso de atraso, incidirá multa de 2% e juros de 1% ao mês sobre o valor em aberto."
+              />
+              <p className="text-xs text-gray-500 mt-1.5">
+                Se ficar em branco, o sistema monta automaticamente o texto com base nos percentuais.
+              </p>
+            </div>
+
+            <div className="md:col-span-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+              <p className="text-xs font-bold text-amber-700 uppercase tracking-wider mb-1">
+                Prévia textual
+              </p>
+              <p className="text-sm text-amber-900 leading-relaxed">{lateRulePreview}</p>
+            </div>
+          </div>
+        </div>
+
         {saveSuccess && (
           <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 flex gap-3">
             <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
@@ -266,7 +369,6 @@ export default function FinancialPixSettingsPage() {
           </div>
         )}
 
-        {/* Ações */}
         <div className="flex flex-col sm:flex-row gap-3">
           <button
             type="submit"

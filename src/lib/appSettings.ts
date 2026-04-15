@@ -16,12 +16,20 @@ import { supabase } from './supabase';
  * =========================
  */
 
+export type LateInterestPeriod = 'monthly' | 'daily';
+
 export interface FinancialPixSettingsFormData {
   pix_key_type: string;
   pix_key: string;
   beneficiary_name: string;
   default_payment_instructions: string;
   default_contract_notes: string;
+  default_late_fee_enabled: boolean;
+  default_late_fee_percent: string;
+  default_interest_enabled: boolean;
+  default_interest_percent: string;
+  default_interest_period: LateInterestPeriod;
+  default_late_fee_notes: string;
 }
 
 export interface FinancialPixSettingsRecord extends FinancialPixSettingsFormData {
@@ -35,6 +43,12 @@ export const EMPTY_FINANCIAL_PIX_SETTINGS: FinancialPixSettingsFormData = {
   beneficiary_name: '',
   default_payment_instructions: '',
   default_contract_notes: '',
+  default_late_fee_enabled: false,
+  default_late_fee_percent: '2',
+  default_interest_enabled: false,
+  default_interest_percent: '1',
+  default_interest_period: 'monthly',
+  default_late_fee_notes: '',
 };
 
 /**
@@ -128,10 +142,16 @@ function stringNumberOrDefault(value: number | null | undefined, fallback: strin
   return String(value);
 }
 
+function numericStringToPositiveNumber(value: string, fallback: number): number {
+  const parsed = Number(String(value).replace(',', '.'));
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
 /**
  * Busca o registro mais recente da tabela app_settings.
- * O sistema hoje trabalha como configuração central da clínica,
- * então o registro mais recente continua sendo a fonte de verdade.
  */
 async function getLatestAppSettingsRecord() {
   const { data, error } = await supabase
@@ -150,7 +170,6 @@ async function getLatestAppSettingsRecord() {
 
 /**
  * Atualiza ou cria o registro central de app_settings.
- * Reutilizado pelos módulos de configurações.
  */
 async function upsertLatestAppSettings(
   payload: Record<string, any>,
@@ -169,9 +188,7 @@ async function upsertLatestAppSettings(
       .select('id, updated_at')
       .single();
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     return {
       id: data.id,
@@ -189,9 +206,7 @@ async function upsertLatestAppSettings(
       .select('id, updated_at')
       .single();
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     return {
       id: data.id,
@@ -205,9 +220,7 @@ async function upsertLatestAppSettings(
     .select('id, updated_at')
     .single();
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return {
     id: data.id,
@@ -240,6 +253,13 @@ export async function getFinancialPixSettings(): Promise<FinancialPixSettingsRec
     beneficiary_name: nullToEmpty(data.beneficiary_name),
     default_payment_instructions: nullToEmpty(data.default_payment_instructions),
     default_contract_notes: nullToEmpty(data.default_contract_notes),
+    default_late_fee_enabled: booleanOrDefault(data.default_late_fee_enabled, false),
+    default_late_fee_percent: stringNumberOrDefault(data.default_late_fee_percent, '2'),
+    default_interest_enabled: booleanOrDefault(data.default_interest_enabled, false),
+    default_interest_percent: stringNumberOrDefault(data.default_interest_percent, '1'),
+    default_interest_period:
+      data.default_interest_period === 'daily' ? 'daily' : 'monthly',
+    default_late_fee_notes: nullToEmpty(data.default_late_fee_notes),
   };
 }
 
@@ -253,6 +273,19 @@ export async function saveFinancialPixSettings(
     beneficiary_name: emptyToNull(values.beneficiary_name),
     default_payment_instructions: emptyToNull(values.default_payment_instructions),
     default_contract_notes: emptyToNull(values.default_contract_notes),
+    default_late_fee_enabled: values.default_late_fee_enabled,
+    default_late_fee_percent: numericStringToPositiveNumber(
+      values.default_late_fee_percent,
+      2
+    ),
+    default_interest_enabled: values.default_interest_enabled,
+    default_interest_percent: numericStringToPositiveNumber(
+      values.default_interest_percent,
+      1
+    ),
+    default_interest_period:
+      values.default_interest_period === 'daily' ? 'daily' : 'monthly',
+    default_late_fee_notes: emptyToNull(values.default_late_fee_notes),
   };
 
   return upsertLatestAppSettings(payload, currentId);

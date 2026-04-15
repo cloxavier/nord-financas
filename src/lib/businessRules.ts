@@ -6,12 +6,25 @@
 import { parseDateOnlyAsLocalDate } from './utils';
 
 /**
+ * Retorna o valor em aberto de uma parcela.
+ * Nunca deixa retornar valor negativo.
+ */
+export function getInstallmentOutstandingAmount(installment: any): number {
+  if (!installment) return 0;
+
+  const amount = Number(installment.amount || 0);
+  const amountPaid = Number(installment.amount_paid || 0);
+
+  return Math.max(amount - amountPaid, 0);
+}
+
+/**
  * Regra canônica para determinar se uma parcela está em atraso.
  * Uma parcela é considerada em atraso se:
  * - A data de vencimento é anterior à data atual
  * - O status não é 'paid' (pago)
  * - O status não é 'cancelled' (cancelado)
- * - O valor restante (amount - amount_paid) é maior que zero
+ * - O valor restante é maior que zero
  */
 export function isInstallmentOverdue(installment: any): boolean {
   if (!installment) return false;
@@ -26,9 +39,46 @@ export function isInstallmentOverdue(installment: any): boolean {
 
   const isPaid = installment.status === 'paid';
   const isCancelled = installment.status === 'cancelled';
-  const remainingAmount = (installment.amount || 0) - (installment.amount_paid || 0);
+  const remainingAmount = getInstallmentOutstandingAmount(installment);
 
   return dueDate < today && !isPaid && !isCancelled && remainingAmount > 0;
+}
+
+/**
+ * Retorna o status efetivo de uma parcela para uso nas telas.
+ * Esse status pode divergir do valor puro salvo no banco, porque atraso
+ * é um estado derivado pela data de vencimento + pagamento.
+ */
+export function getInstallmentEffectiveStatus(
+  installment: any
+): 'paid' | 'cancelled' | 'overdue' | 'pending' {
+  if (!installment) return 'pending';
+
+  if (installment.status === 'paid' || getInstallmentOutstandingAmount(installment) <= 0) {
+    return 'paid';
+  }
+
+  if (installment.status === 'cancelled') {
+    return 'cancelled';
+  }
+
+  if (isInstallmentOverdue(installment)) {
+    return 'overdue';
+  }
+
+  return 'pending';
+}
+
+/**
+ * Label amigável do status efetivo.
+ */
+export function getInstallmentEffectiveStatusLabel(installment: any): string {
+  const effectiveStatus = getInstallmentEffectiveStatus(installment);
+
+  if (effectiveStatus === 'paid') return 'Pago';
+  if (effectiveStatus === 'cancelled') return 'Cancelado';
+  if (effectiveStatus === 'overdue') return 'Atrasado';
+  return 'Pendente';
 }
 
 /**
@@ -73,11 +123,11 @@ export function resolvePatientName(record: any): string {
 export function calculateTreatmentFinancials(treatment: any, installments: any[] = []) {
   const subtotal = treatment.subtotal || 0;
   const discount = treatment.discount_amount || 0;
-  const total = treatment.total_amount || (subtotal - discount);
+  const total = treatment.total_amount || subtotal - discount;
 
   const paid = installments
-    .filter((i) => i.status === 'paid')
-    .reduce((sum, i) => sum + (i.amount_paid || i.amount), 0);
+    .filter((i) => getInstallmentEffectiveStatus(i) === 'paid')
+    .reduce((sum, i) => sum + Number(i.amount_paid || i.amount || 0), 0);
 
   const pending = total - paid;
 
@@ -89,6 +139,6 @@ export function calculateTreatmentFinancials(treatment: any, installments: any[]
     pending,
     isFullyPaid: pending <= 0,
     installmentsCount: installments.length,
-    paidCount: installments.filter((i) => i.status === 'paid').length,
+    paidCount: installments.filter((i) => getInstallmentEffectiveStatus(i) === 'paid').length,
   };
 }

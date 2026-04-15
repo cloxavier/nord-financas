@@ -2,6 +2,7 @@ import { supabase } from '@/src/lib/supabase';
 import { getDashboardMetrics } from '@/src/lib/financialMetrics';
 import { resolvePatientName } from '@/src/lib/businessRules';
 import { getNotificationSettings } from '@/src/lib/appSettings';
+import { formatDateTime } from '@/src/lib/utils';
 
 const RECENT_ACTIVITIES_LIMIT = 5;
 
@@ -44,17 +45,13 @@ export interface DashboardSnapshot {
 /**
  * Busca o snapshot do dashboard a partir das fontes consolidadas do projeto.
  *
- * Nesta etapa, a meta é:
- * - parar de duplicar lógica financeira dentro do dashboard
- * - usar os status reais de tratamentos já centralizados em financialMetrics
- * - manter a montagem de atividades recentes neste serviço
+ * Nesta etapa:
+ * - o dashboard continua usando as métricas centrais
+ * - atividades recentes passam a respeitar a timezone oficial da aplicação
  */
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
   const notificationSettings = await getNotificationSettings();
 
-  /**
-   * Segurança mínima para evitar valor inválido vindo da configuração.
-   */
   const safeAlertDays = Math.max(0, Number(notificationSettings.due_alert_days || '3'));
 
   const notificationPreferences: DashboardNotificationPreferences = {
@@ -63,22 +60,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     enableWhatsappQuickCharge: notificationSettings.enable_whatsapp_quick_charge,
   };
 
-  /**
-   * Métricas financeiras e operacionais centrais.
-   * Esta é a fonte oficial para:
-   * - pacientes
-   * - tratamentos ativos
-   * - recebido no mês
-   * - parcelas em atraso
-   * - vencimentos próximos
-   * - tratamentos pendentes
-   */
   const dashboardMetrics = await getDashboardMetrics(safeAlertDays);
 
-  /**
-   * Atividades recentes continuam sendo montadas aqui,
-   * porque combinam audit logs + tratamentos + pacientes.
-   */
   const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
     await Promise.all([
       supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(10),
@@ -99,7 +82,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       patient: log.description?.split(':')?.pop()?.trim() || 'Sistema',
       description: log.description || log.action,
       amount: 0,
-      date: new Date(log.created_at).toLocaleString('pt-BR'),
+      date: formatDateTime(log.created_at),
       rawDate: new Date(log.created_at),
     });
   });
@@ -111,7 +94,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       patient: resolvePatientName(treatment),
       description: 'Novo tratamento criado',
       amount: treatment.total_amount || 0,
-      date: new Date(treatment.created_at).toLocaleString('pt-BR'),
+      date: formatDateTime(treatment.created_at),
       rawDate: new Date(treatment.created_at),
     });
   });
@@ -123,7 +106,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       patient: patient.full_name,
       description: 'Paciente cadastrado',
       amount: 0,
-      date: new Date(patient.created_at).toLocaleString('pt-BR'),
+      date: formatDateTime(patient.created_at),
       rawDate: new Date(patient.created_at),
     });
   });

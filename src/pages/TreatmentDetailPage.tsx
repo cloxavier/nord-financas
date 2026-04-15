@@ -2,20 +2,19 @@
  * Página de Detalhes do Tratamento.
  * Exibe informações completas de um tratamento, incluindo itens, parcelas e dados do paciente.
  * Permite gerenciar o plano de pagamento e realizar a exclusão segura do tratamento.
+ *
+ * Nesta fase, a tela também exibe as condições de multa e juros por atraso
+ * salvas como snapshot no tratamento.
  */
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { 
-  ArrowLeft, 
-  Edit, 
-  Trash2, 
-  User, 
-  ClipboardList, 
-  DollarSign, 
-  Calendar, 
-  CheckCircle, 
-  Clock, 
+import {
+  ArrowLeft,
+  Edit,
+  Trash2,
+  CheckCircle,
+  Clock,
   AlertCircle,
   Plus,
   Loader2,
@@ -25,9 +24,15 @@ import {
   X,
   Info,
   ShieldAlert,
-  ChevronRight
+  ChevronRight,
+  DollarSign,
 } from 'lucide-react';
-import { formatCurrency, formatDate } from '../lib/utils';
+import {
+  formatCurrency,
+  formatDate,
+  getTodayDateInAppTimezone,
+  formatDateOnlyForInput,
+} from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { resolvePatientName } from '../lib/businessRules';
 import {
@@ -35,10 +40,11 @@ import {
   generatePaymentPlanPreview,
   replaceTreatmentPaymentPlan,
 } from '../domain/paymentPlans/services/paymentPlanGenerationService';
+import { PaymentPlanFormValues } from '../domain/paymentPlans/contracts/paymentPlanContracts';
 import {
-  PaymentPlanFormValues,
-} from '../domain/paymentPlans/contracts/paymentPlanContracts';
-
+  buildLateRuleDescription,
+  resolveLateRuleNotes,
+} from '../lib/lateChargeRules';
 
 export default function TreatmentDetailPage() {
   // Obtém o ID do tratamento da URL
@@ -73,7 +79,7 @@ export default function TreatmentDetailPage() {
     plans: 0,
     installments: 0,
     payments: 0,
-    items: 0
+    items: 0,
   });
   // Estado de carregamento ao excluir
   const [deleting, setDeleting] = useState(false);
@@ -83,11 +89,11 @@ export default function TreatmentDetailPage() {
   const [deleteSuccess, setDeleteSuccess] = useState(false);
 
   // Estado do formulário de geração de parcelas
- const [installmentForm, setInstallmentForm] = useState<PaymentPlanFormValues>({
+  const [installmentForm, setInstallmentForm] = useState<PaymentPlanFormValues>({
   count: 1,
-  firstDueDate: new Date().toISOString().split('T')[0],
+  firstDueDate: getTodayDateInAppTimezone(),
   interval: 'monthly',
-  adjustLast: true
+  adjustLast: true,
   });
 
   // Busca os dados ao carregar a página ou mudar o ID
@@ -96,37 +102,60 @@ export default function TreatmentDetailPage() {
   }, [id]);
 
   /**
- * Preview central do parcelamento.
- * A página passa a consumir o cálculo vindo do domínio,
- * e não mais recalcular localmente.
- */
-const contractedTotal = treatment?.total_amount || 0;
-const entryAmount = treatment?.entry_amount || 0;
-const amountToFinance =
-  treatment?.amount_to_finance ?? Math.max(contractedTotal - entryAmount, 0);
+   * Preview central do parcelamento.
+   * A página passa a consumir o cálculo vindo do domínio,
+   * e não mais recalcular localmente.
+   */
+  const contractedTotal = treatment?.total_amount || 0;
+  const entryAmount = treatment?.entry_amount || 0;
+  const amountToFinance =
+    treatment?.amount_to_finance ?? Math.max(contractedTotal - entryAmount, 0);
 
-const installmentPreview = useMemo(() => {
-  if (amountToFinance <= 0) {
-    return null;
-  }
+  /**
+   * Texto técnico e texto final das condições de atraso.
+   * - lateRuleDescription: resumo objetivo
+   * - lateRuleNotes: texto final mostrado ao usuário
+   */
+  const lateRuleDescription = buildLateRuleDescription({
+    late_fee_enabled: treatment?.late_fee_enabled,
+    late_fee_percent: treatment?.late_fee_percent,
+    interest_enabled: treatment?.interest_enabled,
+    interest_percent: treatment?.interest_percent,
+    interest_period: treatment?.interest_period,
+    late_fee_notes: treatment?.late_fee_notes,
+  });
 
-  try {
-    return generatePaymentPlanPreview({
-      amountToFinance,
-      installmentCount: installmentForm.count,
-      firstDueDate: installmentForm.firstDueDate,
-      intervalType: installmentForm.interval,
-      adjustLastInstallment: installmentForm.adjustLast,
-    });
-  } catch {
-    return null;
-  }
+  const lateRuleNotes = resolveLateRuleNotes({
+    late_fee_enabled: treatment?.late_fee_enabled,
+    late_fee_percent: treatment?.late_fee_percent,
+    interest_enabled: treatment?.interest_enabled,
+    interest_percent: treatment?.interest_percent,
+    interest_period: treatment?.interest_period,
+    late_fee_notes: treatment?.late_fee_notes,
+  });
+
+  const installmentPreview = useMemo(() => {
+    if (amountToFinance <= 0) {
+      return null;
+    }
+
+    try {
+      return generatePaymentPlanPreview({
+        amountToFinance,
+        installmentCount: installmentForm.count,
+        firstDueDate: installmentForm.firstDueDate,
+        intervalType: installmentForm.interval,
+        adjustLastInstallment: installmentForm.adjustLast,
+      });
+    } catch {
+      return null;
+    }
   }, [
-  amountToFinance,
-  installmentForm.count,
-  installmentForm.firstDueDate,
-  installmentForm.interval,
-  installmentForm.adjustLast,
+    amountToFinance,
+    installmentForm.count,
+    installmentForm.firstDueDate,
+    installmentForm.interval,
+    installmentForm.adjustLast,
   ]);
 
   /**
@@ -135,6 +164,7 @@ const installmentPreview = useMemo(() => {
   async function fetchData() {
     if (!id) return;
     setLoading(true);
+
     try {
       // Busca dados básicos do tratamento com join de paciente
       const { data: tData, error: tError } = await supabase
@@ -154,11 +184,7 @@ const installmentPreview = useMemo(() => {
           .select('*')
           .eq('treatment_id', id)
           .order('installment_number', { ascending: true }),
-        supabase
-          .from('payment_plans')
-          .select('*')
-          .eq('treatment_id', id)
-          .maybeSingle(),
+        supabase.from('payment_plans').select('*').eq('treatment_id', id).maybeSingle(),
       ]);
 
       if (itemsRes.error) throw itemsRes.error;
@@ -172,12 +198,13 @@ const installmentPreview = useMemo(() => {
       if (planRes.data) {
         setInstallmentForm({
           count: planRes.data.installment_count || 1,
-          firstDueDate: planRes.data.first_due_date || new Date().toISOString().split('T')[0],
+          firstDueDate:
+            formatDateOnlyForInput(planRes.data.first_due_date) ||
+            getTodayDateInAppTimezone(),
           interval: planRes.data.interval_type || 'monthly',
           adjustLast: planRes.data.adjust_last_installment ?? true,
         });
       }
-
     } catch (error) {
       console.error('Error fetching treatment details:', error);
       navigate('/tratamentos');
@@ -193,15 +220,21 @@ const installmentPreview = useMemo(() => {
     if (!id) return;
     try {
       const [plansRes, paymentsRes] = await Promise.all([
-        supabase.from('payment_plans').select('id', { count: 'exact', head: true }).eq('treatment_id', id),
-        supabase.from('payment_records').select('id, installments!inner(id)', { count: 'exact', head: true }).eq('installments.treatment_id', id)
+        supabase
+          .from('payment_plans')
+          .select('id', { count: 'exact', head: true })
+          .eq('treatment_id', id),
+        supabase
+          .from('payment_records')
+          .select('id, installments!inner(id)', { count: 'exact', head: true })
+          .eq('installments.treatment_id', id),
       ]);
 
       setStats({
         plans: plansRes.count || 0,
         installments: installments.length,
         payments: paymentsRes.count || 0,
-        items: items.length
+        items: items.length,
       });
     } catch (error) {
       console.error('Error fetching deletion stats:', error);
@@ -216,20 +249,24 @@ const installmentPreview = useMemo(() => {
     if (!id) return;
     setDeleting(true);
     setDeleteError(null);
+
     try {
       const { error: updateError } = await supabase
         .from('treatments')
-        .update({ 
+        .update({
           status: 'cancelled',
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         })
         .eq('id', id);
 
       if (updateError) throw updateError;
-      
-      // Registra atividade de cancelamento
+
       const { logActivity } = await import('../lib/activities');
-      await logActivity('treatment_cancelled', `Tratamento #${id.slice(0, 8)} cancelado`, { entity_id: id });
+      await logActivity(
+        'treatment_cancelled',
+        `Tratamento #${id.slice(0, 8)} cancelado`,
+        { entity_id: id }
+      );
 
       setDeleteSuccess(true);
       setTimeout(() => {
@@ -251,24 +288,28 @@ const installmentPreview = useMemo(() => {
    */
   const handlePermanentDelete = async () => {
     if (!id) return;
-    
-    // Validação de confirmação (Segurança extra)
+
     const expectedConfirmation = id.slice(0, 8).toUpperCase();
-    if (deleteConfirmation.toUpperCase() !== 'EXCLUIR' && deleteConfirmation.toUpperCase() !== expectedConfirmation) {
-      setDeleteError(`Confirmação incorreta. Digite EXCLUIR ou ${expectedConfirmation}.`);
+    if (
+      deleteConfirmation.toUpperCase() !== 'EXCLUIR' &&
+      deleteConfirmation.toUpperCase() !== expectedConfirmation
+    ) {
+      setDeleteError(
+        `Confirmação incorreta. Digite EXCLUIR ou ${expectedConfirmation}.`
+      );
       return;
     }
 
     setDeleting(true);
     setDeleteError(null);
+
     try {
-      // Chama a RPC para exclusão permanente (Transactional)
       const { data, error } = await supabase.rpc('permanently_delete_treatment', {
-        p_treatment_id: id
+        p_treatment_id: id,
       });
 
       if (error) throw error;
-      
+
       if (data && !data.success) {
         throw new Error(data.message);
       }
@@ -285,33 +326,14 @@ const installmentPreview = useMemo(() => {
     }
   };
 
- 
   /**
    * Gera o plano de parcelamento para o tratamento.
    * Agora a página delega a regra de cálculo ao serviço central do domínio.
    */
-const generateInstallments = async () => {
-  if (!id) return;
+  const generateInstallments = async () => {
+    if (!id) return;
 
     const validationError = getPaymentPlanValidationError({
-    amountToFinance,
-    installmentCount: installmentForm.count,
-    firstDueDate: installmentForm.firstDueDate,
-    intervalType: installmentForm.interval,
-    adjustLastInstallment: installmentForm.adjustLast,
-  });
-
-  if (validationError) {
-    setGenerateError(validationError);
-    return;
-  }
-
-  setIsGenerating(true);
-  setGenerateError(null);
-
-  try {
-        await replaceTreatmentPaymentPlan({
-      treatmentId: id,
       amountToFinance,
       installmentCount: installmentForm.count,
       firstDueDate: installmentForm.firstDueDate,
@@ -319,24 +341,42 @@ const generateInstallments = async () => {
       adjustLastInstallment: installmentForm.adjustLast,
     });
 
-    const { logActivity } = await import('../lib/activities');
-    await logActivity(
-      paymentPlan ? 'installment_recalculated' : 'installment_generated',
-      `${
-        paymentPlan ? 'Plano de pagamento recalculado' : 'Plano de pagamento gerado'
-      } (${installmentForm.count}x) para o tratamento #${id.slice(0, 8)}`,
-      { entity_id: id }
-    );
+    if (validationError) {
+      setGenerateError(validationError);
+      return;
+    }
 
-    setShowInstallmentModal(false);
-    fetchData();
-  } catch (error: any) {
-    console.error('Error generating installments:', error);
-    setGenerateError(error.message || 'Erro ao gerar/recalcular parcelas.');
-  } finally {
-    setIsGenerating(false);
-  }
-};
+    setIsGenerating(true);
+    setGenerateError(null);
+
+    try {
+      await replaceTreatmentPaymentPlan({
+        treatmentId: id,
+        amountToFinance,
+        installmentCount: installmentForm.count,
+        firstDueDate: installmentForm.firstDueDate,
+        intervalType: installmentForm.interval,
+        adjustLastInstallment: installmentForm.adjustLast,
+      });
+
+      const { logActivity } = await import('../lib/activities');
+      await logActivity(
+        paymentPlan ? 'installment_recalculated' : 'installment_generated',
+        `${
+          paymentPlan ? 'Plano de pagamento recalculado' : 'Plano de pagamento gerado'
+        } (${installmentForm.count}x) para o tratamento #${id.slice(0, 8)}`,
+        { entity_id: id }
+      );
+
+      setShowInstallmentModal(false);
+      fetchData();
+    } catch (error: any) {
+      console.error('Error generating installments:', error);
+      setGenerateError(error.message || 'Erro ao gerar/recalcular parcelas.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   /**
    * Retorna o badge de status estilizado.
@@ -347,17 +387,19 @@ const generateInstallments = async () => {
       pending: 'bg-yellow-100 text-yellow-700',
       in_progress: 'bg-blue-100 text-blue-700',
       completed: 'bg-green-100 text-green-700',
-      cancelled: 'bg-red-100 text-red-700'
+      cancelled: 'bg-red-100 text-red-700',
     };
     const labels: any = {
       draft: 'Rascunho',
       pending: 'Pendente',
       in_progress: 'Em Andamento',
       completed: 'Concluído',
-      cancelled: 'Cancelado'
+      cancelled: 'Cancelado',
     };
     return (
-      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${styles[status]}`}>
+      <span
+        className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${styles[status]}`}
+      >
         {labels[status]}
       </span>
     );
@@ -370,7 +412,6 @@ const generateInstallments = async () => {
     window.open(`/tratamentos/${id}/imprimir`, '_blank');
   };
 
-  // Exibe loader durante o carregamento inicial
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -379,43 +420,54 @@ const generateInstallments = async () => {
     );
   }
 
-  // Se o tratamento não existir, não renderiza nada
   if (!treatment) {
     return null;
   }
 
   return (
     <div className="space-y-8 print:space-y-6 print:p-0">
-      {/* Cabeçalho de Impressão (visível apenas ao imprimir) */}
+      {/* Cabeçalho de Impressão */}
       <div className="hidden print:block border-b-2 border-gray-900 pb-4 mb-6">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Nord Odonto</h1>
+            <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight">
+              Nord Odonto
+            </h1>
             <p className="text-sm text-gray-500">Relatório de Tratamento e Orçamento</p>
           </div>
           <div className="text-right">
-            <p className="text-sm font-bold">Data de Emissão: {new Date().toLocaleDateString('pt-BR')}</p>
+            <p className="text-sm font-bold">
+              Data de Emissão: {formatDate(new Date())}
+            </p>  
             <p className="text-xs text-gray-500">ID: {treatment.id}</p>
           </div>
         </div>
       </div>
 
-      {/* Cabeçalho de Navegação e Ações (oculto ao imprimir) */}
+      {/* Cabeçalho principal */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/tratamentos')} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+          <button
+            onClick={() => navigate('/tratamentos')}
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          >
             <ArrowLeft size={20} className="text-gray-600" />
           </button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Tratamento #{treatment.id.slice(0, 8)}</h1>
+              <h1 className="text-2xl font-bold text-gray-900">
+                Tratamento #{treatment.id.slice(0, 8)}
+              </h1>
               {getStatusBadge(treatment.status)}
             </div>
-            <p className="text-sm text-gray-500">Criado em {formatDate(treatment.created_at)}</p>
+            <p className="text-sm text-gray-500">
+              Criado em {formatDate(treatment.created_at)}
+            </p>
           </div>
         </div>
+
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
-          <button 
+          <button
             type="button"
             onClick={handlePrint}
             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 border rounded-lg text-gray-700 font-semibold hover:bg-gray-50 transition-colors cursor-pointer text-sm"
@@ -423,22 +475,25 @@ const generateInstallments = async () => {
             <Printer size={18} />
             <span>Imprimir</span>
           </button>
-          <Link 
+
+          <Link
             to={`/tratamentos/${id}/editar`}
             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 border rounded-lg text-gray-700 font-semibold hover:bg-gray-50 transition-colors text-sm"
           >
             <Edit size={18} />
             <span>Editar</span>
           </Link>
-          <button 
+
+          <button
             onClick={() => setShowCancelModal(true)}
             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 border border-amber-200 text-amber-700 font-semibold hover:bg-amber-50 transition-colors text-sm"
           >
             <X size={18} />
             <span>Cancelar</span>
           </button>
+
           {(profile?.role === 'admin' || profile?.role === 'financeiro') && (
-            <button 
+            <button
               onClick={() => {
                 fetchDeletionStats();
                 setShowPermanentDeleteModal(true);
@@ -454,14 +509,16 @@ const generateInstallments = async () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
-          {/* Resumo das Informações do Paciente */}
+          {/* Resumo do paciente */}
           <div className="bg-white rounded-xl border shadow-sm p-6 flex items-center justify-between print:border-none print:shadow-none print:p-0">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold print:hidden">
                 {resolvePatientName(treatment).charAt(0)}
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Paciente</p>
+                <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">
+                  Paciente
+                </p>
                 <div className="text-lg font-bold text-gray-900">
                   {resolvePatientName(treatment)}
                 </div>
@@ -473,36 +530,56 @@ const generateInstallments = async () => {
             </div>
           </div>
 
-          {/* Tabela de Itens (Procedimentos) */}
+          {/* Tabela de itens */}
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden print:border-none print:shadow-none">
             <div className="px-6 py-4 border-b bg-gray-50/50 print:bg-transparent print:px-0">
               <h3 className="font-bold text-gray-900">Procedimentos Inclusos</h3>
             </div>
-            
-            {/* Desktop Table View */}
+
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b print:bg-gray-50">
-                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider print:px-2">Procedimento</th>
-                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider print:px-2">Qtd</th>
-                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider print:px-2">Unitário</th>
-                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider text-right print:px-2">Total</th>
+                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider print:px-2">
+                      Procedimento
+                    </th>
+                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider print:px-2">
+                      Qtd
+                    </th>
+                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider print:px-2">
+                      Unitário
+                    </th>
+                    <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider text-right print:px-2">
+                      Total
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {items.length > 0 ? items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900 print:px-2 print:py-2">
-                        {item.procedure_name_snapshot || item.procedure_name || 'Procedimento'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600 print:px-2 print:py-2">{item.quantity}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600 print:px-2 print:py-2">{formatCurrency(item.unit_price_snapshot)}</td>
-                      <td className="px-6 py-4 text-sm font-bold text-gray-900 text-right print:px-2 print:py-2">{formatCurrency(item.line_total)}</td>
-                    </tr>
-                  )) : (
+                  {items.length > 0 ? (
+                    items.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900 print:px-2 print:py-2">
+                          {item.procedure_name_snapshot ||
+                            item.procedure_name ||
+                            'Procedimento'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600 print:px-2 print:py-2">
+                          {item.quantity}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600 print:px-2 print:py-2">
+                          {formatCurrency(item.unit_price_snapshot)}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-gray-900 text-right print:px-2 print:py-2">
+                          {formatCurrency(item.line_total)}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
                     <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-gray-500 text-sm">
+                      <td
+                        colSpan={4}
+                        className="px-6 py-8 text-center text-gray-500 text-sm"
+                      >
                         Nenhum procedimento incluído neste tratamento.
                       </td>
                     </tr>
@@ -511,32 +588,39 @@ const generateInstallments = async () => {
               </table>
             </div>
 
-            {/* Mobile Card View */}
             <div className="md:hidden divide-y">
-              {items.length > 0 ? items.map((item) => (
-                <div key={item.id} className="p-4 space-y-2">
-                  <div className="flex justify-between items-start">
-                    <p className="text-sm font-bold text-gray-900">
-                      {item.procedure_name_snapshot || item.procedure_name || 'Procedimento'}
-                    </p>
-                    <p className="text-sm font-bold text-blue-600">{formatCurrency(item.line_total)}</p>
+              {items.length > 0 ? (
+                items.map((item) => (
+                  <div key={item.id} className="p-4 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <p className="text-sm font-bold text-gray-900">
+                        {item.procedure_name_snapshot ||
+                          item.procedure_name ||
+                          'Procedimento'}
+                      </p>
+                      <p className="text-sm font-bold text-blue-600">
+                        {formatCurrency(item.line_total)}
+                      </p>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>Qtd: {item.quantity}</span>
+                      <span>Unit: {formatCurrency(item.unit_price_snapshot)}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-xs text-gray-500">
-                    <span>Qtd: {item.quantity}</span>
-                    <span>Unit: {formatCurrency(item.unit_price_snapshot)}</span>
-                  </div>
-                </div>
-              )) : (
+                ))
+              ) : (
                 <div className="p-8 text-center text-gray-500 text-sm">
                   Nenhum procedimento incluído neste tratamento.
                 </div>
               )}
             </div>
 
-                        <div className="bg-gray-50/50 p-4 space-y-2 print:bg-transparent print:px-0">
+            <div className="bg-gray-50/50 p-4 space-y-2 print:bg-transparent print:px-0">
               <div className="flex justify-between text-sm">
                 <span className="font-medium text-gray-500">Subtotal</span>
-                <span className="font-bold text-gray-900">{formatCurrency(treatment.subtotal)}</span>
+                <span className="font-bold text-gray-900">
+                  {formatCurrency(treatment.subtotal)}
+                </span>
               </div>
 
               {treatment.discount_amount > 0 && (
@@ -580,11 +664,12 @@ const generateInstallments = async () => {
             </div>
           </div>
 
-          {/* Seção de Parcelas */}
+          {/* Seção de parcelas */}
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden print:border-none print:shadow-none">
             <div className="px-6 py-4 border-b bg-gray-50/50 flex items-center justify-between print:bg-transparent print:px-0">
               <h3 className="font-bold text-gray-900">Plano de Pagamento</h3>
-                            {amountToFinance > 0 && (
+
+              {amountToFinance > 0 && (
                 <button
                   onClick={() => {
                     setGenerateError(null);
@@ -597,41 +682,77 @@ const generateInstallments = async () => {
                 </button>
               )}
             </div>
+
             <div className="divide-y">
-              {installments.length > 0 ? installments.map((inst) => (
-                <div key={inst.id} className="px-4 md:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between hover:bg-gray-50 transition-colors print:px-2 print:py-2 gap-3">
-                  <div className="flex items-center gap-4">
-                    <div className={cn(
-                      "w-10 h-10 rounded-lg flex items-center justify-center print:hidden shrink-0",
-                      inst.status === 'paid' ? "bg-green-100 text-green-700" : 
-                      inst.status === 'overdue' ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-700"
-                    )}>
-                      {inst.status === 'paid' ? <CheckCircle size={20} /> : 
-                       inst.status === 'overdue' ? <AlertCircle size={20} /> : <Clock size={20} />}
+              {installments.length > 0 ? (
+                installments.map((inst) => (
+                  <div
+                    key={inst.id}
+                    className="px-4 md:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between hover:bg-gray-50 transition-colors print:px-2 print:py-2 gap-3"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div
+                        className={cn(
+                          'w-10 h-10 rounded-lg flex items-center justify-center print:hidden shrink-0',
+                          inst.status === 'paid'
+                            ? 'bg-green-100 text-green-700'
+                            : inst.status === 'overdue'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-gray-100 text-gray-700'
+                        )}
+                      >
+                        {inst.status === 'paid' ? (
+                          <CheckCircle size={20} />
+                        ) : inst.status === 'overdue' ? (
+                          <AlertCircle size={20} />
+                        ) : (
+                          <Clock size={20} />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">
+                          Parcela {inst.installment_number}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Vencimento: {formatDate(inst.due_date)}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">Parcela {inst.installment_number}</p>
-                      <p className="text-xs text-gray-500">Vencimento: {formatDate(inst.due_date)}</p>
+
+                    <div className="flex items-center justify-between md:justify-end gap-6">
+                      <div className="text-left md:text-right">
+                        <p className="text-sm font-bold text-gray-900">
+                          {formatCurrency(inst.amount)}
+                        </p>
+                        <p
+                          className={cn(
+                            'text-[10px] font-bold uppercase tracking-wider',
+                            inst.status === 'paid'
+                              ? 'text-green-600'
+                              : inst.status === 'overdue'
+                              ? 'text-red-600'
+                              : 'text-gray-400'
+                          )}
+                        >
+                          {inst.status === 'paid'
+                            ? 'Pago'
+                            : inst.status === 'overdue'
+                            ? 'Atrasado'
+                            : 'Pendente'}
+                        </p>
+                      </div>
+
+                      <Link
+                        to={`/parcelas/${inst.id}`}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors print:hidden"
+                      >
+                        <ChevronRight size={20} />
+                      </Link>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between md:justify-end gap-6">
-                    <div className="text-left md:text-right">
-                      <p className="text-sm font-bold text-gray-900">{formatCurrency(inst.amount)}</p>
-                      <p className={cn(
-                        "text-[10px] font-bold uppercase tracking-wider",
-                        inst.status === 'paid' ? "text-green-600" : 
-                        inst.status === 'overdue' ? "text-red-600" : "text-gray-400"
-                      )}>
-                        {inst.status === 'paid' ? 'Pago' : inst.status === 'overdue' ? 'Atrasado' : 'Pendente'}
-                      </p>
-                    </div>
-                    <Link to={`/parcelas/${inst.id}`} className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors print:hidden">
-                      <ChevronRight size={20} />
-                    </Link>
-                  </div>
-                </div>
-              )) : (
-                                <div className="px-6 py-12 text-center print:hidden">
+                ))
+              ) : (
+                <div className="px-6 py-12 text-center print:hidden">
                   <p className="text-gray-500">
                     {amountToFinance > 0
                       ? 'Nenhum plano de pagamento gerado para este tratamento.'
@@ -643,8 +764,9 @@ const generateInstallments = async () => {
           </div>
         </div>
 
+        {/* Coluna lateral */}
         <div className="lg:col-span-1 space-y-6">
-          {/* Preferência de Pagamento */}
+          {/* Preferência de pagamento */}
           <div className="bg-white rounded-xl border shadow-sm p-6 print:border-none print:shadow-none print:p-0">
             <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2 border-b pb-2 print:mb-2">
               <DollarSign size={18} className="text-blue-600 print:hidden" />
@@ -655,7 +777,36 @@ const generateInstallments = async () => {
             </p>
           </div>
 
-          {/* Notas Adicionais */}
+          {/* NOVO CARD: Condições em Caso de Atraso */}
+          <div className="bg-white rounded-xl border shadow-sm p-6 print:border-none print:shadow-none print:p-0">
+            <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2 border-b pb-2 print:mb-2">
+              <AlertCircle size={18} className="text-amber-600 print:hidden" />
+              Condições em Caso de Atraso
+            </h3>
+
+            <div className="space-y-3">
+              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                {lateRuleNotes}
+              </p>
+
+              <div className="text-[11px] text-gray-400">
+                {treatment.use_clinic_default_late_rules
+                  ? 'Snapshot baseado no padrão da clínica no momento do orçamento.'
+                  : 'Regra personalizada diretamente neste tratamento.'}
+              </div>
+
+              <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">
+                  Resumo técnico
+                </p>
+                <p className="text-xs text-amber-900 leading-relaxed">
+                  {lateRuleDescription}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Notas adicionais */}
           <div className="bg-white rounded-xl border shadow-sm p-6 print:border-none print:shadow-none print:p-0">
             <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2 border-b pb-2 print:mb-2">
               <FileText size={18} className="text-blue-600 print:hidden" />
@@ -668,7 +819,7 @@ const generateInstallments = async () => {
         </div>
       </div>
 
-      {/* Modal de Geração de Parcelas */}
+      {/* Modal de geração de parcelas */}
       {showInstallmentModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
@@ -681,7 +832,10 @@ const generateInstallments = async () => {
                   {installments.length === 0 ? 'Gerar Parcelas' : 'Recalcular Parcelas'}
                 </h3>
               </div>
-              <button onClick={() => setShowInstallmentModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+              <button
+                onClick={() => setShowInstallmentModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-full"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -693,8 +847,9 @@ const generateInstallments = async () => {
                   {generateError}
                 </div>
               )}
+
               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Saldo a Parcelar
                 </label>
                 <div className="w-full px-4 py-2 bg-gray-50 border rounded-lg font-bold text-gray-900">
@@ -707,20 +862,35 @@ const generateInstallments = async () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Qtd. Parcelas</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Qtd. Parcelas
+                  </label>
                   <input
                     type="number"
                     min="1"
                     value={installmentForm.count}
-                    onChange={e => setInstallmentForm({...installmentForm, count: parseInt(e.target.value) || 1})}
+                    onChange={(e) =>
+                      setInstallmentForm({
+                        ...installmentForm,
+                        count: parseInt(e.target.value) || 1,
+                      })
+                    }
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Intervalo</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Intervalo
+                  </label>
                   <select
                     value={installmentForm.interval}
-                    onChange={e => setInstallmentForm({...installmentForm, interval: e.target.value})}
+                    onChange={(e) =>
+                      setInstallmentForm({
+                        ...installmentForm,
+                        interval: e.target.value as 'monthly' | 'biweekly' | 'weekly',
+                      })
+                    }
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                   >
                     <option value="monthly">Mensal</option>
@@ -731,11 +901,18 @@ const generateInstallments = async () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Primeiro Vencimento</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Primeiro Vencimento
+                </label>
                 <input
                   type="date"
                   value={installmentForm.firstDueDate}
-                  onChange={e => setInstallmentForm({...installmentForm, firstDueDate: e.target.value})}
+                  onChange={(e) =>
+                    setInstallmentForm({
+                      ...installmentForm,
+                      firstDueDate: e.target.value,
+                    })
+                  }
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
@@ -745,7 +922,12 @@ const generateInstallments = async () => {
                   type="checkbox"
                   id="adjustLast"
                   checked={installmentForm.adjustLast}
-                  onChange={e => setInstallmentForm({...installmentForm, adjustLast: e.target.checked})}
+                  onChange={(e) =>
+                    setInstallmentForm({
+                      ...installmentForm,
+                      adjustLast: e.target.checked,
+                    })
+                  }
                   className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                 />
                 <label htmlFor="adjustLast" className="text-sm text-gray-600">
@@ -754,31 +936,31 @@ const generateInstallments = async () => {
               </div>
 
               <div className="bg-blue-50 p-4 rounded-xl flex gap-3">
-                  <Info size={20} className="text-blue-600 shrink-0" />
-                  <div className="text-xs text-blue-700 leading-relaxed space-y-1">
+                <Info size={20} className="text-blue-600 shrink-0" />
+                <div className="text-xs text-blue-700 leading-relaxed space-y-1">
+                  <p>
+                    Valor base das parcelas:{' '}
+                    <strong>
+                      {formatCurrency(installmentPreview?.baseInstallmentAmount || 0)}
+                    </strong>
+                  </p>
+
+                  {installmentPreview?.installments.length ? (
                     <p>
-                      Valor base das parcelas:{' '}
+                      Última parcela prevista:{' '}
                       <strong>
-                        {formatCurrency(installmentPreview?.baseInstallmentAmount || 0)}
+                        {formatCurrency(
+                          installmentPreview.installments[
+                            installmentPreview.installments.length - 1
+                          ].amount
+                        )}
                       </strong>
                     </p>
+                  ) : null}
 
-                    {installmentPreview?.installments.length ? (
-                      <p>
-                        Última parcela prevista:{' '}
-                        <strong>
-                          {formatCurrency(
-                            installmentPreview.installments[
-                              installmentPreview.installments.length - 1
-                            ].amount
-                          )}
-                        </strong>
-                      </p>
-                    ) : null}
-
-                    <p>O status inicial será "Pendente".</p>
-                  </div>
+                  <p>O status inicial será "Pendente".</p>
                 </div>
+              </div>
             </div>
 
             <div className="mt-8 flex gap-3">
@@ -793,14 +975,18 @@ const generateInstallments = async () => {
                 disabled={isGenerating}
                 className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {isGenerating ? <Loader2 className="animate-spin h-5 w-5" /> : 'Confirmar'}
+                {isGenerating ? (
+                  <Loader2 className="animate-spin h-5 w-5" />
+                ) : (
+                  'Confirmar'
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal de Cancelamento (Lógico) */}
+      {/* Modal de Cancelamento */}
       {showCancelModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
@@ -808,16 +994,18 @@ const generateInstallments = async () => {
               <AlertCircle size={24} />
               <h3 className="text-xl font-bold">Cancelar Tratamento</h3>
             </div>
-            
+
             <div className="space-y-4">
               <p className="text-gray-600">
                 Deseja alterar o status do tratamento para <strong>Cancelado</strong>?
               </p>
-              
+
               <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl flex gap-3">
                 <Info size={20} className="text-blue-600 shrink-0" />
                 <p className="text-xs text-blue-700 leading-relaxed">
-                  Esta ação preserva todo o histórico financeiro e registros do tratamento para referência futura. O tratamento continuará visível no sistema com o status "Cancelado".
+                  Esta ação preserva todo o histórico financeiro e registros do tratamento
+                  para referência futura. O tratamento continuará visível no sistema com o
+                  status "Cancelado".
                 </p>
               </div>
 
@@ -850,52 +1038,73 @@ const generateInstallments = async () => {
                 disabled={deleting}
                 className="flex-1 py-3 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 transition-colors shadow-lg shadow-amber-100 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {deleting ? <Loader2 className="animate-spin h-5 w-5" /> : 'Confirmar Cancelamento'}
+                {deleting ? (
+                  <Loader2 className="animate-spin h-5 w-5" />
+                ) : (
+                  'Confirmar Cancelamento'
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal de Exclusão Permanente (Físico) */}
+      {/* Modal de Exclusão Permanente */}
       {showPermanentDeleteModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex items-center gap-3 text-red-600 mb-4">
               <ShieldAlert size={28} />
-              <h3 className="text-2xl font-black uppercase tracking-tight">Exclusão Permanente</h3>
+              <h3 className="text-2xl font-black uppercase tracking-tight">
+                Exclusão Permanente
+              </h3>
             </div>
-            
+
             <div className="space-y-6">
               <div className="p-4 bg-red-50 border border-red-100 rounded-xl">
-                <p className="text-sm text-red-800 font-bold mb-2">ATENÇÃO: ESTA AÇÃO É IRREVERSÍVEL</p>
+                <p className="text-sm text-red-800 font-bold mb-2">
+                  ATENÇÃO: ESTA AÇÃO É IRREVERSÍVEL
+                </p>
                 <p className="text-xs text-red-700 leading-relaxed">
-                  Você está prestes a apagar completamente este tratamento e todos os seus registros financeiros. 
-                  Será como se o tratamento nunca tivesse existido no banco de dados.
+                  Você está prestes a apagar completamente este tratamento e todos os seus
+                  registros financeiros. Será como se o tratamento nunca tivesse existido no
+                  banco de dados.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-3 bg-gray-50 rounded-lg border">
-                  <p className="text-[10px] text-gray-400 uppercase font-bold">ID do Tratamento</p>
-                  <p className="text-sm font-mono font-bold text-gray-700">{treatment.id.slice(0, 8)}</p>
+                  <p className="text-[10px] text-gray-400 uppercase font-bold">
+                    ID do Tratamento
+                  </p>
+                  <p className="text-sm font-mono font-bold text-gray-700">
+                    {treatment.id.slice(0, 8)}
+                  </p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg border">
                   <p className="text-[10px] text-gray-400 uppercase font-bold">Paciente</p>
-                  <p className="text-sm font-bold text-gray-700 truncate">{treatment.patient_name_snapshot}</p>
+                  <p className="text-sm font-bold text-gray-700 truncate">
+                    {treatment.patient_name_snapshot}
+                  </p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg border">
                   <p className="text-[10px] text-gray-400 uppercase font-bold">Valor Total</p>
-                  <p className="text-sm font-bold text-gray-700">{formatCurrency(treatment.total_amount)}</p>
+                  <p className="text-sm font-bold text-gray-700">
+                    {formatCurrency(treatment.total_amount)}
+                  </p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg border">
                   <p className="text-[10px] text-gray-400 uppercase font-bold">Itens</p>
-                  <p className="text-sm font-bold text-gray-700">{stats.items} procedimentos</p>
+                  <p className="text-sm font-bold text-gray-700">
+                    {stats.items} procedimentos
+                  </p>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Registros que serão removidos:</p>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Registros que serão removidos:
+                </p>
                 <ul className="text-xs text-gray-600 space-y-1 list-disc pl-4">
                   <li>{stats.plans} Plano de pagamento</li>
                   <li>{stats.installments} Parcelas financeiras</li>
@@ -907,7 +1116,12 @@ const generateInstallments = async () => {
 
               <div className="space-y-3">
                 <label className="block text-sm font-bold text-gray-700">
-                  Para confirmar, digite <span className="text-red-600 font-black">EXCLUIR</span> ou o ID <span className="text-red-600 font-black">{treatment.id.slice(0, 8).toUpperCase()}</span>:
+                  Para confirmar, digite{' '}
+                  <span className="text-red-600 font-black">EXCLUIR</span> ou o ID{' '}
+                  <span className="text-red-600 font-black">
+                    {treatment.id.slice(0, 8).toUpperCase()}
+                  </span>
+                  :
                 </label>
                 <input
                   type="text"

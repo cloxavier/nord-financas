@@ -72,6 +72,13 @@ export interface Treatment {
   total_amount: number;
   entry_amount: number;
   amount_to_finance: number;
+  use_clinic_default_late_rules: boolean;
+  late_fee_enabled: boolean;
+  late_fee_percent: number;
+  interest_enabled: boolean;
+  interest_percent: number;
+  interest_period: 'monthly' | 'daily';
+  late_fee_notes?: string | null;
   payment_method_preference: string;
   notes: string;
   created_by: string;

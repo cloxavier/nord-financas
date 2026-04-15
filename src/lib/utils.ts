@@ -1,10 +1,20 @@
 /**
  * Funções utilitárias compartilhadas.
- * Este arquivo contém funções para manipulação de classes CSS, formatação de moeda e datas.
+ * Este arquivo concentra:
+ * - classes CSS
+ * - formatação monetária
+ * - regras canônicas de data/hora da aplicação
+ *
+ * Regra desta fase:
+ * a timezone oficial da aplicação é America/Sao_Paulo.
+ * Tudo que for exibição, data padrão de input e parsing de datas corridas
+ * deve passar por este arquivo.
  */
 
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+
+export const APP_TIMEZONE = 'America/Sao_Paulo';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -18,15 +28,74 @@ export function formatCurrency(value: number) {
 }
 
 /**
- * Verifica se a string está no formato puro de data YYYY-MM-DD.
+ * Verifica se a string está no formato puro YYYY-MM-DD.
  */
 export function isDateOnlyString(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 /**
+ * Normaliza uma entrada qualquer em Date válido.
+ */
+function toValidDate(value: string | Date | number | null | undefined) {
+  if (!value) return null;
+
+  const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * Extrai ano/mês/dia já respeitando a timezone oficial da aplicação.
+ * Retorna mês e dia sempre com 2 dígitos.
+ */
+function getAppDateParts(value: string | Date | number | null | undefined = new Date()) {
+  const safeDate = toValidDate(value);
+  if (!safeDate) return null;
+
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  const parts = formatter.formatToParts(safeDate);
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  if (!year || !month || !day) return null;
+
+  return { year, month, day };
+}
+
+/**
+ * Retorna a data de hoje na timezone da aplicação em YYYY-MM-DD.
+ * Esta função substitui o padrão antigo new Date().toISOString().split('T')[0].
+ */
+export function getTodayDateInAppTimezone() {
+  const parts = getAppDateParts(new Date());
+  if (!parts) return '';
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/**
+ * Retorna o primeiro dia do mês corrente na timezone da aplicação.
+ */
+export function getMonthStartDateInAppTimezone(
+  referenceDate: string | Date | number | null | undefined = new Date()
+) {
+  const parts = getAppDateParts(referenceDate);
+  if (!parts) return '';
+
+  return `${parts.year}-${parts.month}-01`;
+}
+
+/**
  * Converte uma string YYYY-MM-DD em Date local, sem sofrer deslocamento de fuso.
- * Usa meio-dia local para evitar problemas de timezone/DST na criação.
+ * Usa meio-dia local para evitar problemas de DST/UTC.
  */
 export function parseDateOnlyAsLocalDate(dateStr: string | null | undefined) {
   if (!dateStr || typeof dateStr !== 'string') return null;
@@ -39,8 +108,7 @@ export function parseDateOnlyAsLocalDate(dateStr: string | null | undefined) {
 }
 
 /**
- * Formata uma string de data YYYY-MM-DD para o padrão brasileiro (DD/MM/AAAA)
- * sem sofrer deslocamento de fuso horário.
+ * Formata uma data YYYY-MM-DD para DD/MM/AAAA sem deslocamento.
  */
 export function formatDateOnly(dateStr: string | null | undefined) {
   if (!dateStr) return 'Não informado';
@@ -56,25 +124,50 @@ export function formatDateOnly(dateStr: string | null | undefined) {
 }
 
 /**
- * Formata uma string de data ou objeto Date para o padrão brasileiro (DD/MM/AAAA).
- * Se a entrada for YYYY-MM-DD puro, trata como data sem horário para não deslocar um dia.
+ * Formata data para DD/MM/AAAA.
+ * - Se receber YYYY-MM-DD puro, trata como data sem horário.
+ * - Se receber datetime, formata respeitando America/Sao_Paulo.
  */
 export function formatDate(date: string | Date | null | undefined) {
   if (!date) return 'N/A';
 
-  if (typeof date === 'string' && isDateOnlyString(date.split('T')[0]) && !date.includes('T')) {
-    return formatDateOnly(date);
+  if (typeof date === 'string') {
+    const pureDate = date.split('T')[0];
+    if (isDateOnlyString(pureDate) && !date.includes('T')) {
+      return formatDateOnly(date);
+    }
   }
 
-  const d = date instanceof Date ? date : new Date(date);
-  if (isNaN(d.getTime())) return 'Data Inválida';
+  const safeDate = toValidDate(date);
+  if (!safeDate) return 'Data Inválida';
 
-  return new Intl.DateTimeFormat('pt-BR').format(d);
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: APP_TIMEZONE,
+  }).format(safeDate);
 }
 
 /**
- * Prepara uma data para ser exibida em um input do tipo date (YYYY-MM-DD),
- * garantindo que não haja deslocamento de fuso horário.
+ * Formata data e hora completas na timezone da aplicação.
+ */
+export function formatDateTime(date: string | Date | null | undefined) {
+  if (!date) return 'N/A';
+
+  const safeDate = toValidDate(date);
+  if (!safeDate) return 'Data Inválida';
+
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: APP_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(safeDate);
+}
+
+/**
+ * Prepara uma data para input[type="date"] em YYYY-MM-DD
+ * sem deslocamento indevido de UTC.
  */
 export function formatDateOnlyForInput(date: string | Date | null | undefined) {
   if (!date) return '';
@@ -83,12 +176,8 @@ export function formatDateOnlyForInput(date: string | Date | null | undefined) {
     return date.split('T')[0];
   }
 
-  if (date instanceof Date) {
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
+  const parts = getAppDateParts(date);
+  if (!parts) return '';
 
-  return '';
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }

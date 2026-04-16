@@ -5,8 +5,8 @@
  * - usa a timezone oficial da aplicação
  * - evita deslocamento de data em pagamento
  * - grava o breakdown do pagamento no momento da baixa
- * - exibe a parcela paga com visão precisa:
- *   principal, total recebido, multa, juros e dias de atraso
+ * - exibe a parcela paga com visão precisa
+ * - só mostra a baixa para quem tem payments_register
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
@@ -23,6 +23,7 @@ import {
   FileText,
   Mail,
   Phone,
+  Lock,
 } from 'lucide-react';
 import {
   formatCurrency,
@@ -34,6 +35,7 @@ import {
 } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { logActivity } from '../lib/activities';
+import { useAuth } from '../contexts/AuthContext';
 import {
   getInstallmentEffectiveStatus,
   isInstallmentOverdue,
@@ -55,6 +57,9 @@ function buildReferenceDate(dateString?: string | null) {
 export default function InstallmentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+
+  const canRegisterPayment = hasPermission('payments_register');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -216,7 +221,7 @@ export default function InstallmentDetailPage() {
 
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!id || !installment) return;
+    if (!id || !installment || !canRegisterPayment) return;
 
     setSaving(true);
 
@@ -598,7 +603,23 @@ export default function InstallmentDetailPage() {
             </div>
           )}
 
-          {!isPaid && (
+          {!isPaid && !canRegisterPayment && (
+            <div className="bg-white rounded-xl border shadow-sm p-6">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                  <Lock size={18} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900">Baixa restrita</h3>
+                  <p className="text-sm text-gray-600 mt-1 leading-6">
+                    Sua conta pode visualizar esta parcela, mas não possui permissão para registrar pagamentos.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!isPaid && canRegisterPayment && (
             <form
               onSubmit={handlePayment}
               className="bg-white rounded-xl border shadow-sm overflow-hidden"

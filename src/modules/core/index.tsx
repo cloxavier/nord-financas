@@ -10,6 +10,7 @@ import {
   User,
   Shield,
   Building2,
+  Activity,
 } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { AppModuleDefinition } from '@/src/app/extensions/contracts';
@@ -43,10 +44,6 @@ export const coreModule: AppModuleDefinition = {
   name: 'core',
 
   routes: [
-    /**
-     * Redirecionamento principal da aplicação autenticada.
-     * Mantemos no módulo core para o AppRoutes deixar de conhecer isso manualmente.
-     */
     {
       path: '/',
       element: <Navigate to="/dashboard" replace />,
@@ -55,20 +52,15 @@ export const coreModule: AppModuleDefinition = {
       order: 1,
     },
 
-    /**
-     * Atividades
-     */
     {
       path: '/atividades',
       element: <ActivitiesPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'activities_view',
       order: 15,
     },
 
-    /**
-     * Usuários
-     */
     {
       path: '/usuarios',
       element: <UserAccessManagementPage />,
@@ -78,14 +70,12 @@ export const coreModule: AppModuleDefinition = {
       order: 18,
     },
 
-    /**
-     * Pacientes
-     */
     {
       path: '/pacientes',
       element: <PatientsPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'patients_view',
       order: 20,
     },
     {
@@ -93,6 +83,7 @@ export const coreModule: AppModuleDefinition = {
       element: <PatientFormPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'patients_create',
       order: 21,
     },
     {
@@ -100,6 +91,7 @@ export const coreModule: AppModuleDefinition = {
       element: <PatientDetailPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'patients_view',
       order: 22,
     },
     {
@@ -107,17 +99,16 @@ export const coreModule: AppModuleDefinition = {
       element: <PatientFormPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'patients_edit',
       order: 23,
     },
 
-    /**
-     * Procedimentos
-     */
     {
       path: '/procedimentos',
       element: <ProceduresPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'procedures_view',
       order: 30,
     },
     {
@@ -125,6 +116,7 @@ export const coreModule: AppModuleDefinition = {
       element: <ProcedureFormPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'procedures_create',
       order: 31,
     },
     {
@@ -132,6 +124,7 @@ export const coreModule: AppModuleDefinition = {
       element: <ProcedureDetailPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'procedures_view',
       order: 32,
     },
     {
@@ -139,17 +132,16 @@ export const coreModule: AppModuleDefinition = {
       element: <ProcedureFormPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'procedures_edit',
       order: 33,
     },
 
-    /**
-     * Tratamentos
-     */
     {
       path: '/tratamentos',
       element: <TreatmentsPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'treatments_view',
       order: 40,
     },
     {
@@ -157,6 +149,7 @@ export const coreModule: AppModuleDefinition = {
       element: <TreatmentFormPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'treatments_create',
       order: 41,
     },
     {
@@ -164,6 +157,7 @@ export const coreModule: AppModuleDefinition = {
       element: <TreatmentDetailPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'treatments_view',
       order: 42,
     },
     {
@@ -171,17 +165,16 @@ export const coreModule: AppModuleDefinition = {
       element: <TreatmentFormPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'treatments_edit',
       order: 43,
     },
 
-    /**
-     * Parcelas
-     */
     {
       path: '/parcelas',
       element: <InstallmentsPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'installments_view',
       order: 50,
     },
     {
@@ -189,28 +182,25 @@ export const coreModule: AppModuleDefinition = {
       element: <InstallmentDetailPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'installments_view',
       order: 51,
     },
 
-    /**
-     * Cobranças
-     */
     {
       path: '/cobrancas',
       element: <BillingPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'collections_view',
       order: 60,
     },
 
-    /**
-     * Relatórios
-     */
     {
       path: '/relatorios',
       element: <ReportsPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'reports_view',
       order: 70,
     },
     {
@@ -218,14 +208,10 @@ export const coreModule: AppModuleDefinition = {
       element: <ReportViewPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'reports_view',
       order: 71,
     },
 
-    /**
-     * Configurações
-     * Agora a árvore das subrotas fica declarada dentro do módulo,
-     * e não mais espalhada no AppRoutes.
-     */
     {
       path: '/configuracoes',
       element: <SettingsPage />,
@@ -241,25 +227,26 @@ export const coreModule: AppModuleDefinition = {
         {
           path: 'clinica',
           element: <ClinicSettingsPage />,
+          requiredPermission: 'settings_manage',
         },
         {
           path: 'financeiro-pix',
           element: <FinancialPixSettingsPage />,
+          requiredPermission: 'settings_manage',
         },
         {
           path: 'notificacoes',
           element: <NotificationsSettingsPage />,
+          requiredPermission: 'settings_manage',
         },
         {
           path: 'permissoes-seguranca',
           element: <PermissionsSecuritySettingsPage />,
+          requiredPermission: 'settings_manage',
         },
       ],
     },
 
-    /**
-     * Perfil
-     */
     {
       path: '/perfil',
       element: <ProfilePage />,
@@ -268,19 +255,18 @@ export const coreModule: AppModuleDefinition = {
       order: 100,
     },
 
-    /**
-     * Rotas protegidas sem layout
-     */
     {
       path: '/tratamentos/:id/imprimir',
       element: <TreatmentPrintPage />,
       protected: true,
+      requiredPermission: 'treatments_view',
       order: 200,
     },
     {
       path: '/relatorios/:type/imprimir',
       element: <ReportPrintPage />,
       protected: true,
+      requiredPermission: 'reports_view',
       order: 210,
     },
   ],
@@ -291,13 +277,23 @@ export const coreModule: AppModuleDefinition = {
       label: 'Dashboard',
       path: '/dashboard',
       icon: LayoutDashboard,
+      requiredPermission: 'dashboard_basic',
       order: 10,
+    },
+    {
+      key: 'activities',
+      label: 'Atividades',
+      path: '/atividades',
+      icon: Activity,
+      requiredPermission: 'activities_view',
+      order: 15,
     },
     {
       key: 'patients',
       label: 'Pacientes',
       path: '/pacientes',
       icon: Users,
+      requiredPermission: 'patients_view',
       order: 20,
     },
     {
@@ -305,6 +301,7 @@ export const coreModule: AppModuleDefinition = {
       label: 'Procedimentos',
       path: '/procedimentos',
       icon: Stethoscope,
+      requiredPermission: 'procedures_view',
       order: 30,
     },
     {
@@ -312,6 +309,7 @@ export const coreModule: AppModuleDefinition = {
       label: 'Tratamentos',
       path: '/tratamentos',
       icon: ClipboardList,
+      requiredPermission: 'treatments_view',
       order: 40,
     },
     {
@@ -319,6 +317,7 @@ export const coreModule: AppModuleDefinition = {
       label: 'Parcelas',
       path: '/parcelas',
       icon: CreditCard,
+      requiredPermission: 'installments_view',
       order: 50,
     },
     {
@@ -326,6 +325,7 @@ export const coreModule: AppModuleDefinition = {
       label: 'Cobranças',
       path: '/cobrancas',
       icon: Bell,
+      requiredPermission: 'collections_view',
       order: 60,
     },
     {
@@ -333,6 +333,7 @@ export const coreModule: AppModuleDefinition = {
       label: 'Relatórios',
       path: '/relatorios',
       icon: BarChart3,
+      requiredPermission: 'reports_view',
       order: 70,
     },
     {
@@ -367,6 +368,7 @@ export const coreModule: AppModuleDefinition = {
       description: 'Informações institucionais e de contato usadas no sistema.',
       path: '/configuracoes/clinica',
       icon: Building2,
+      requiredPermission: 'settings_manage',
       order: 10,
     },
     {
@@ -375,6 +377,7 @@ export const coreModule: AppModuleDefinition = {
       description: 'Configure os dados básicos usados em cobranças, recebimentos e Pix.',
       path: '/configuracoes/financeiro-pix',
       icon: CreditCard,
+      requiredPermission: 'settings_manage',
       order: 20,
     },
     {
@@ -383,6 +386,7 @@ export const coreModule: AppModuleDefinition = {
       description: 'Configure alertas internos e a base da cobrança assistida por WhatsApp.',
       path: '/configuracoes/notificacoes',
       icon: Bell,
+      requiredPermission: 'settings_manage',
       order: 30,
     },
     {
@@ -391,6 +395,7 @@ export const coreModule: AppModuleDefinition = {
       description: 'Configure confirmações reforçadas e a base de segurança para ações sensíveis.',
       path: '/configuracoes/permissoes-seguranca',
       icon: Shield,
+      requiredPermission: 'settings_manage',
       order: 40,
     },
   ],

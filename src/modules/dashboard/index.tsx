@@ -10,6 +10,7 @@ export const dashboardModule: AppModuleDefinition = {
       element: <DashboardPage />,
       protected: true,
       layout: true,
+      requiredPermission: 'dashboard_basic',
       order: 10,
     },
   ],

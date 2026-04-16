@@ -1,26 +1,31 @@
 /**
  * Layout principal da área de Configurações.
- * Nesta fase, o objetivo é organizar navegação, nomenclatura e rotas sem ainda implementar
- * toda a lógica de persistência das próximas subáreas.
+ * Nesta fase, além da navegação organizada por módulo,
+ * as seções agora respeitam requiredPermission.
  */
-import React from 'react';
+import React, { useMemo } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { Settings } from 'lucide-react';
 import { getAllSettingsSections } from '@/src/app/moduleRegistry';
 import { cn } from '@/src/lib/utils';
+import { useAuth } from '@/src/contexts/AuthContext';
+import { filterItemsByPermission } from '@/src/domain/access/policies/accessPolicies';
 
 export default function SettingsPage() {
-  const settingsSections = getAllSettingsSections().map((section) => ({
-    key: section.key,
-    title: section.title,
-    description: section.description,
-    path: section.path,
-    icon: section.icon,
-  }));
+  const { permissions } = useAuth();
+
+  const settingsSections = useMemo(() => {
+    return filterItemsByPermission(getAllSettingsSections(), permissions).map((section) => ({
+      key: section.key,
+      title: section.title,
+      description: section.description,
+      path: section.path,
+      icon: section.icon,
+    }));
+  }, [permissions]);
 
   return (
     <div className="space-y-6">
-      {/* Cabeçalho da área de Configurações */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Configurações</h1>
@@ -30,7 +35,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Estrutura principal com navegação lateral e área de conteúdo */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-4 min-h-[560px]">
           <aside className="bg-gray-50 border-r p-4 space-y-1">
@@ -71,7 +75,6 @@ export default function SettingsPage() {
           </aside>
 
           <section className="md:col-span-3 p-5 md:p-8 bg-white">
-            {/* O conteúdo específico de cada subseção é renderizado aqui pelas rotas filhas. */}
             <Outlet />
           </section>
         </div>

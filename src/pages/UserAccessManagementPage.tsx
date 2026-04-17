@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { AccessRole, AccessStatus } from '../types/database';
 import {
-  listActiveAccessRoles,
+  listAllAccessRoles,
   listUserAccessOverview,
   updateUserAccessControl,
   UserAccessOverview,
@@ -56,7 +56,7 @@ export default function UserAccessManagementPage() {
     try {
       const [usersData, rolesData] = await Promise.all([
         listUserAccessOverview(),
-        listActiveAccessRoles(),
+        listAllAccessRoles(),
       ]);
 
       setUsers(usersData);
@@ -72,7 +72,7 @@ export default function UserAccessManagementPage() {
     } catch (error: any) {
       console.error('Erro ao carregar administração de usuários:', error);
       setPageError(
-        'Não foi possível carregar a administração de usuários. Confirme se o SQL da etapa 3A.1c foi executado corretamente.'
+        'Não foi possível carregar a administração de usuários. Confirme se o SQL da etapa de cargos foi executado corretamente.'
       );
     } finally {
       setLoading(false);
@@ -86,11 +86,23 @@ export default function UserAccessManagementPage() {
     }));
   }
 
+  function getSelectedRole(roleId?: string | null) {
+    if (!roleId) return null;
+    return roles.find((role) => role.id === roleId) ?? null;
+  }
+
   async function handleApprove(user: UserAccessOverview) {
     const selectedRoleId = draftRoleByUser[user.profile_id];
+    const selectedRole = getSelectedRole(selectedRoleId);
 
-    if (!selectedRoleId) {
+    if (!selectedRoleId || !selectedRole) {
       setPageError(`Selecione um cargo antes de aprovar ${user.full_name}.`);
+      setPageSuccess('');
+      return;
+    }
+
+    if (!selectedRole.is_active) {
+      setPageError(`O cargo selecionado para ${user.full_name} está inativo.`);
       setPageSuccess('');
       return;
     }
@@ -140,9 +152,16 @@ export default function UserAccessManagementPage() {
 
   async function handleReactivate(user: UserAccessOverview) {
     const selectedRoleId = draftRoleByUser[user.profile_id] || user.role_id;
+    const selectedRole = getSelectedRole(selectedRoleId);
 
-    if (!selectedRoleId) {
+    if (!selectedRoleId || !selectedRole) {
       setPageError(`Selecione um cargo antes de reativar ${user.full_name}.`);
+      setPageSuccess('');
+      return;
+    }
+
+    if (!selectedRole.is_active) {
+      setPageError(`O cargo selecionado para ${user.full_name} está inativo.`);
       setPageSuccess('');
       return;
     }
@@ -170,9 +189,16 @@ export default function UserAccessManagementPage() {
 
   async function handleSaveRole(user: UserAccessOverview) {
     const selectedRoleId = draftRoleByUser[user.profile_id];
+    const selectedRole = getSelectedRole(selectedRoleId);
 
-    if (!selectedRoleId) {
+    if (!selectedRoleId || !selectedRole) {
       setPageError(`Selecione um cargo para ${user.full_name}.`);
+      setPageSuccess('');
+      return;
+    }
+
+    if (!selectedRole.is_active) {
+      setPageError(`Não é possível atribuir um cargo inativo para ${user.full_name}.`);
       setPageSuccess('');
       return;
     }
@@ -224,6 +250,7 @@ export default function UserAccessManagementPage() {
 
     return (
       <button
+        type="button"
         onClick={() => setFilter(value)}
         className={cn(
           'px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border',
@@ -256,6 +283,7 @@ export default function UserAccessManagementPage() {
         </div>
 
         <button
+          type="button"
           onClick={fetchPageData}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border bg-white text-gray-700 font-semibold hover:bg-gray-50 transition-colors"
         >
@@ -268,8 +296,8 @@ export default function UserAccessManagementPage() {
         <div className="flex items-start gap-3">
           <Shield size={18} className="text-blue-700 mt-0.5 shrink-0" />
           <p className="text-sm text-blue-900 leading-6">
-            Nesta fase, o gestor já consegue aprovar usuários, bloquear acessos e atribuir cargos padrão.
-            A criação e edição completa de cargos virá na próxima etapa.
+            Nesta fase, o gestor já consegue aprovar usuários, bloquear acessos, atribuir cargos
+            padrão e também trabalhar com cargos personalizados criados na área de Permissões e Segurança.
           </p>
         </div>
       </div>
@@ -297,11 +325,11 @@ export default function UserAccessManagementPage() {
               placeholder="Buscar por nome, e-mail ou cargo..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+              className="w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
             />
           </div>
 
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 lg:pb-0">
+          <div className="flex flex-wrap gap-2">
             {renderFilterButton('Todos', 'all', counts.all)}
             {renderFilterButton('Pendentes', 'pending', counts.pending)}
             {renderFilterButton('Ativos', 'active', counts.active)}
@@ -309,143 +337,298 @@ export default function UserAccessManagementPage() {
           </div>
         </div>
 
-        <div className="divide-y">
+        <div className="hidden lg:block overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b bg-gray-50/50">
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Usuário
+                </th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Cargo
+                </th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Cadastro
+                </th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">
+                  Ações
+                </th>
+              </tr>
+            </thead>
+
+            <tbody className="divide-y">
+              {filteredUsers.length > 0 ? (
+                filteredUsers.map((user) => {
+                  const selectedRoleId = draftRoleByUser[user.profile_id] || '';
+                  const selectedRole = getSelectedRole(selectedRoleId);
+                  const isBusy = busyUserId === user.profile_id;
+
+                  return (
+                    <tr key={user.profile_id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 align-top">
+                        <div>
+                          <p className="text-sm font-bold text-gray-900">
+                            {user.full_name}
+                            {user.is_me ? (
+                              <span className="ml-2 text-xs font-semibold text-blue-600">
+                                (você)
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="text-sm text-gray-500 mt-1">{user.email}</p>
+                          {user.approved_by_name && user.approved_at ? (
+                            <p className="text-xs text-gray-400 mt-2">
+                              Aprovado por {user.approved_by_name} em {formatDate(user.approved_at)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4 align-top">
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider border',
+                            getStatusClasses(user.access_status)
+                          )}
+                        >
+                          {getStatusLabel(user.access_status)}
+                        </span>
+                      </td>
+
+                      <td className="px-6 py-4 align-top min-w-[280px]">
+                        <select
+                          value={selectedRoleId}
+                          onChange={(e) => updateDraftRole(user.profile_id, e.target.value)}
+                          className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                        >
+                          <option value="">Selecione um cargo</option>
+                          {roles.map((role) => (
+                            <option key={role.id} value={role.id}>
+                              {role.name}
+                              {role.is_active ? '' : ' (inativo)'}
+                            </option>
+                          ))}
+                        </select>
+
+                        <div className="mt-2 text-xs text-gray-500">
+                          {selectedRole ? (
+                            <>
+                              <span className="font-semibold text-gray-700">
+                                slug:
+                              </span>{' '}
+                              {selectedRole.slug}
+                              {!selectedRole.is_active ? (
+                                <span className="ml-2 font-semibold text-red-600">
+                                  Cargo inativo
+                                </span>
+                              ) : null}
+                            </>
+                          ) : (
+                            'Selecione um cargo para este usuário.'
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4 align-top">
+                        <p className="text-sm text-gray-700">{formatDate(user.created_at)}</p>
+                      </td>
+
+                      <td className="px-6 py-4 align-top">
+                        <div className="flex justify-end gap-2 flex-wrap">
+                          {user.access_status === 'pending' && (
+                            <button
+                              type="button"
+                              onClick={() => handleApprove(user)}
+                              disabled={isBusy}
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-70"
+                            >
+                              {isBusy ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
+                              Aprovar
+                            </button>
+                          )}
+
+                          {user.access_status === 'active' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveRole(user)}
+                                disabled={isBusy}
+                                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 transition-colors disabled:opacity-70"
+                              >
+                                {isBusy ? <Loader2 size={16} className="animate-spin" /> : null}
+                                Salvar cargo
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleBlock(user)}
+                                disabled={isBusy}
+                                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-70"
+                              >
+                                {isBusy ? <Loader2 size={16} className="animate-spin" /> : <UserMinus size={16} />}
+                                Bloquear
+                              </button>
+                            </>
+                          )}
+
+                          {user.access_status === 'blocked' && (
+                            <button
+                              type="button"
+                              onClick={() => handleReactivate(user)}
+                              disabled={isBusy}
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-70"
+                            >
+                              {isBusy ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
+                              Reativar
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                    Nenhum usuário encontrado com esse filtro.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="lg:hidden divide-y">
           {filteredUsers.length > 0 ? (
             filteredUsers.map((user) => {
-              const isBusy = busyUserId === user.profile_id;
               const selectedRoleId = draftRoleByUser[user.profile_id] || '';
+              const selectedRole = getSelectedRole(selectedRoleId);
+              const isBusy = busyUserId === user.profile_id;
 
               return (
-                <div key={user.profile_id} className="p-5 md:p-6 flex flex-col xl:flex-row gap-6">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="text-base font-bold text-gray-900">{user.full_name}</span>
-
-                      {user.is_me && (
-                        <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 border border-blue-100">
-                          Sua conta
-                        </span>
-                      )}
-
-                      <span
-                        className={cn(
-                          'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold border',
-                          getStatusClasses(user.access_status)
-                        )}
-                      >
-                        {getStatusLabel(user.access_status)}
-                      </span>
-
-                      {user.role_name && (
-                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-700">
-                          {user.role_name}
-                        </span>
-                      )}
+                <div key={user.profile_id} className="p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-gray-900">
+                        {user.full_name}
+                        {user.is_me ? (
+                          <span className="ml-2 text-xs font-semibold text-blue-600">
+                            (você)
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{user.email}</p>
                     </div>
 
-                    <p className="text-sm text-gray-600">{user.email || 'E-mail não informado'}</p>
-
-                    <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-gray-500">
-                      <span>Cadastrado em {formatDate(user.created_at)}</span>
-
-                      {user.approved_at && (
-                        <span>
-                          Liberado em {formatDate(user.approved_at)}
-                          {user.approved_by_name ? ` por ${user.approved_by_name}` : ''}
-                        </span>
+                    <span
+                      className={cn(
+                        'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider border',
+                        getStatusClasses(user.access_status)
                       )}
-                    </div>
+                    >
+                      {getStatusLabel(user.access_status)}
+                    </span>
                   </div>
 
-                  <div className="xl:w-[420px] space-y-3">
+                  <div className="grid grid-cols-1 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
                         Cargo
                       </label>
                       <select
                         value={selectedRoleId}
                         onChange={(e) => updateDraftRole(user.profile_id, e.target.value)}
-                        className="w-full px-3 py-2.5 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
                       >
                         <option value="">Selecione um cargo</option>
                         {roles.map((role) => (
                           <option key={role.id} value={role.id}>
                             {role.name}
+                            {role.is_active ? '' : ' (inativo)'}
                           </option>
                         ))}
                       </select>
+
+                      <p className="text-xs text-gray-500 mt-2">
+                        {selectedRole ? `slug: ${selectedRole.slug}` : 'Selecione um cargo.'}
+                      </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      {user.access_status === 'pending' && (
-                        <>
-                          <button
-                            onClick={() => handleApprove(user)}
-                            disabled={isBusy}
-                            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-70"
-                          >
-                            {isBusy ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
-                            Aprovar
-                          </button>
+                    <div className="text-xs text-gray-500">
+                      Cadastrado em {formatDate(user.created_at)}
+                    </div>
+                  </div>
 
-                          <button
-                            onClick={() => handleBlock(user)}
-                            disabled={isBusy || user.is_me}
-                            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-70"
-                          >
-                            <UserMinus size={16} />
-                            Bloquear
-                          </button>
-                        </>
-                      )}
+                  <div className="flex flex-wrap gap-2">
+                    {user.access_status === 'pending' && (
+                      <button
+                        type="button"
+                        onClick={() => handleApprove(user)}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-70"
+                      >
+                        {isBusy ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
+                        Aprovar
+                      </button>
+                    )}
 
-                      {user.access_status === 'active' && (
-                        <>
-                          <button
-                            onClick={() => handleSaveRole(user)}
-                            disabled={isBusy}
-                            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-white border text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-70"
-                          >
-                            {isBusy ? <Loader2 size={16} className="animate-spin" /> : <Users size={16} />}
-                            Salvar cargo
-                          </button>
-
-                          <button
-                            onClick={() => handleBlock(user)}
-                            disabled={isBusy || user.is_me}
-                            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-70"
-                          >
-                            <UserMinus size={16} />
-                            Bloquear
-                          </button>
-                        </>
-                      )}
-
-                      {user.access_status === 'blocked' && (
+                    {user.access_status === 'active' && (
+                      <>
                         <button
-                          onClick={() => handleReactivate(user)}
+                          type="button"
+                          onClick={() => handleSaveRole(user)}
                           disabled={isBusy}
-                          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-70"
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 transition-colors disabled:opacity-70"
                         >
-                          {isBusy ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
-                          Reativar
+                          {isBusy ? <Loader2 size={16} className="animate-spin" /> : null}
+                          Salvar cargo
                         </button>
-                      )}
-                    </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleBlock(user)}
+                          disabled={isBusy}
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-70"
+                        >
+                          {isBusy ? <Loader2 size={16} className="animate-spin" /> : <UserMinus size={16} />}
+                          Bloquear
+                        </button>
+                      </>
+                    )}
+
+                    {user.access_status === 'blocked' && (
+                      <button
+                        type="button"
+                        onClick={() => handleReactivate(user)}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-70"
+                      >
+                        {isBusy ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
+                        Reativar
+                      </button>
+                    )}
                   </div>
                 </div>
               );
             })
           ) : (
-            <div className="p-12 text-center">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Users size={24} className="text-gray-400" />
-              </div>
-              <p className="text-gray-600 font-medium">
-                Nenhum usuário encontrado para os filtros aplicados.
-              </p>
+            <div className="p-12 text-center text-gray-500">
+              Nenhum usuário encontrado com esse filtro.
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <Users size={18} className="text-gray-500 mt-0.5 shrink-0" />
+          <p className="text-sm text-gray-600 leading-6">
+            Total de usuários listados: <strong>{filteredUsers.length}</strong>. Cargos inativos podem continuar
+            vinculados a usuários antigos, mas não devem ser usados em novas aprovações ou reativações.
+          </p>
         </div>
       </div>
     </div>

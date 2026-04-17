@@ -6,6 +6,14 @@
 export type LegacyUserRole = 'admin' | 'financeiro' | 'dentista' | 'recepcao' | null;
 export type AccessStatus = 'pending' | 'active' | 'blocked';
 
+export interface AccessRolePermissionMap {
+  [key: string]: boolean;
+}
+
+export interface AccessRoleFinancialScopeMap {
+  [key: string]: boolean;
+}
+
 export interface AccessRole {
   id: string;
   name: string;
@@ -13,8 +21,8 @@ export interface AccessRole {
   description?: string | null;
   is_system_role: boolean;
   is_active: boolean;
-  permissions_json: Record<string, any>;
-  financial_scope_json: Record<string, any>;
+  permissions_json: AccessRolePermissionMap;
+  financial_scope_json: AccessRoleFinancialScopeMap;
   created_at: string;
   updated_at: string;
 }

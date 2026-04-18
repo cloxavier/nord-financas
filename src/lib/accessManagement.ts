@@ -4,9 +4,11 @@
  * - leitura de usuários e cargos
  * - troca de cargo/status do usuário
  * - criação e edição da definição de cargos
+ * - preview e exclusão segura de cargos customizados
  *
- * Esta versão foi alinhada com a migration já aplicada:
- * 2026-04-017_access_role_editor_and_upsert.sql
+ * Alinhado com:
+ * - 2026-04-017_access_role_editor_and_upsert.sql
+ * - 2026-04-018_safe_delete_custom_roles.sql
  */
 
 import { supabase } from './supabase';
@@ -40,6 +42,31 @@ export interface AccessRoleUpsertResult {
   role_id: string;
   role_slug: string;
   updated_at: string | null;
+}
+
+export interface AccessRoleDeletionPreviewUser {
+  profile_id: string;
+  full_name: string;
+  email: string;
+  access_status: AccessStatus;
+  current_role_id: string | null;
+  current_role_name: string | null;
+  current_role_slug: string | null;
+}
+
+export interface AccessRoleDeletionPreview {
+  role_id: string;
+  role_name: string;
+  role_slug: string;
+  is_system_role: boolean;
+  assigned_users_count: number;
+  assigned_users: AccessRoleDeletionPreviewUser[];
+}
+
+export interface AccessRoleDeleteResult {
+  deleted_role_id: string;
+  deleted_role_slug: string;
+  migrated_users_count: number;
 }
 
 export async function listUserAccessOverview(): Promise<UserAccessOverview[]> {
@@ -104,4 +131,41 @@ export async function upsertAccessRoleDefinition(
   if (error) throw error;
 
   return data as AccessRoleUpsertResult;
+}
+
+export async function previewAccessRoleDeletion(
+  roleId: string
+): Promise<AccessRoleDeletionPreview> {
+  const { data, error } = await supabase.rpc('preview_access_role_deletion', {
+    p_role_id: roleId,
+  });
+
+  if (error) throw error;
+
+  return {
+    ...(data as AccessRoleDeletionPreview),
+    assigned_users: (data as AccessRoleDeletionPreview)?.assigned_users || [],
+  };
+}
+
+export async function deleteAccessRoleWithReassignment(params: {
+  roleId: string;
+  reassignments: Array<{ profileId: string; targetRoleId: string }>;
+}): Promise<AccessRoleDeleteResult> {
+  const payload = params.reassignments.map((item) => ({
+    profile_id: item.profileId,
+    target_role_id: item.targetRoleId,
+  }));
+
+  const { data, error } = await supabase.rpc(
+    'delete_access_role_with_reassignment',
+    {
+      p_role_id: params.roleId,
+      p_reassignments: payload,
+    }
+  );
+
+  if (error) throw error;
+
+  return data as AccessRoleDeleteResult;
 }

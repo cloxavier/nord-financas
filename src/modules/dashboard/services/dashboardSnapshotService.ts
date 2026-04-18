@@ -35,6 +35,10 @@ export interface DashboardMetricsSnapshot {
   overdueCount: number;
 }
 
+export interface DashboardSnapshotOptions {
+  includeRecentActivities?: boolean;
+}
+
 export interface DashboardSnapshot {
   metrics: DashboardMetricsSnapshot;
   recentActivities: DashboardRecentActivity[];
@@ -46,12 +50,16 @@ export interface DashboardSnapshot {
  * Busca o snapshot do dashboard a partir das fontes consolidadas do projeto.
  *
  * Nesta etapa:
- * - o dashboard continua usando as métricas centrais
- * - atividades recentes passam a respeitar a timezone oficial da aplicação
+ * - mantém métricas centrais em financialMetrics
+ * - passa a respeitar includeRecentActivities
+ * - evita buscar atividades quando o usuário não possui activities_view
  */
-export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
-  const notificationSettings = await getNotificationSettings();
+export async function getDashboardSnapshot(
+  options: DashboardSnapshotOptions = {}
+): Promise<DashboardSnapshot> {
+  const { includeRecentActivities = true } = options;
 
+  const notificationSettings = await getNotificationSettings();
   const safeAlertDays = Math.max(0, Number(notificationSettings.due_alert_days || '3'));
 
   const notificationPreferences: DashboardNotificationPreferences = {
@@ -62,58 +70,62 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
 
   const dashboardMetrics = await getDashboardMetrics(safeAlertDays);
 
-  const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
-    await Promise.all([
-      supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(10),
-      supabase.from('treatments').select('*').order('created_at', { ascending: false }).limit(10),
-      supabase.from('patients').select('*').order('created_at', { ascending: false }).limit(10),
-    ]);
+  let recentActivities: DashboardRecentActivity[] = [];
 
-  const normalizedActivities: DashboardRecentActivity[] = [];
+  if (includeRecentActivities) {
+    const [{ data: auditLogs }, { data: recentTreatments }, { data: recentPatients }] =
+      await Promise.all([
+        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(10),
+        supabase.from('treatments').select('*').order('created_at', { ascending: false }).limit(10),
+        supabase.from('patients').select('*').order('created_at', { ascending: false }).limit(10),
+      ]);
 
-  auditLogs?.forEach((log) => {
-    normalizedActivities.push({
-      id: `audit-${log.id}`,
-      type: log.action.includes('payment')
-        ? 'payment'
-        : log.action.includes('treatment')
-        ? 'treatment'
-        : 'patient',
-      patient: log.description?.split(':')?.pop()?.trim() || 'Sistema',
-      description: log.description || log.action,
-      amount: 0,
-      date: formatDateTime(log.created_at),
-      rawDate: new Date(log.created_at),
+    const normalizedActivities: DashboardRecentActivity[] = [];
+
+    auditLogs?.forEach((log) => {
+      normalizedActivities.push({
+        id: `audit-${log.id}`,
+        type: log.action.includes('payment')
+          ? 'payment'
+          : log.action.includes('treatment')
+          ? 'treatment'
+          : 'patient',
+        patient: log.description?.split(':')?.pop()?.trim() || 'Sistema',
+        description: log.description || log.action,
+        amount: 0,
+        date: formatDateTime(log.created_at),
+        rawDate: new Date(log.created_at),
+      });
     });
-  });
 
-  recentTreatments?.forEach((treatment) => {
-    normalizedActivities.push({
-      id: `treatment-${treatment.id}`,
-      type: 'treatment',
-      patient: resolvePatientName(treatment),
-      description: 'Novo tratamento criado',
-      amount: treatment.total_amount || 0,
-      date: formatDateTime(treatment.created_at),
-      rawDate: new Date(treatment.created_at),
+    recentTreatments?.forEach((treatment) => {
+      normalizedActivities.push({
+        id: `treatment-${treatment.id}`,
+        type: 'treatment',
+        patient: resolvePatientName(treatment),
+        description: 'Novo tratamento criado',
+        amount: treatment.total_amount || 0,
+        date: formatDateTime(treatment.created_at),
+        rawDate: new Date(treatment.created_at),
+      });
     });
-  });
 
-  recentPatients?.forEach((patient) => {
-    normalizedActivities.push({
-      id: `patient-${patient.id}`,
-      type: 'patient',
-      patient: patient.full_name,
-      description: 'Paciente cadastrado',
-      amount: 0,
-      date: formatDateTime(patient.created_at),
-      rawDate: new Date(patient.created_at),
+    recentPatients?.forEach((patient) => {
+      normalizedActivities.push({
+        id: `patient-${patient.id}`,
+        type: 'patient',
+        patient: patient.full_name,
+        description: 'Paciente cadastrado',
+        amount: 0,
+        date: formatDateTime(patient.created_at),
+        rawDate: new Date(patient.created_at),
+      });
     });
-  });
 
-  const recentActivities = normalizedActivities
-    .sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime())
-    .slice(0, RECENT_ACTIVITIES_LIMIT);
+    recentActivities = normalizedActivities
+      .sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime())
+      .slice(0, RECENT_ACTIVITIES_LIMIT);
+  }
 
   const reminders: DashboardReminderState = {
     dueWithinAlertDays: dashboardMetrics.dueWithinAlertDaysCount || 0,

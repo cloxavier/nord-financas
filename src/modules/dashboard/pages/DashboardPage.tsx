@@ -1,22 +1,14 @@
 /**
  * Página de Dashboard.
- * Esta página fornece uma visão geral da clínica, incluindo estatísticas,
- * atividades recentes e lembretes de cobrança.
- *
- * Etapa 3A.2a:
- * - Aplica permissões reais no dashboard.
- * - Esconde visão executiva para quem não possui dashboard_executive.
- * - Esconde lembretes de cobrança para quem não possui collections_view.
- * - Mantém os cards clicáveis e o bloco de atividades sem regressão.
+ * Nesta etapa:
+ * - aplica dashboard_executive
+ * - aplica collections_view
+ * - passa a aplicar activities_view
+ * - não busca nem exibe atividades recentes para quem não possui essa permissão
  */
 
-import {
-  canSeeCollections as resolveCanSeeCollections,
-  canSeeExecutiveDashboard as resolveCanSeeExecutiveDashboard,
-  filterItemsByPermission,
-} from '@/src/domain/access/policies/accessPolicies';
-import React, { useState, useEffect, useMemo } from 'react';
-import { useAuth } from '@/src/contexts/AuthContext';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Users,
   ClipboardList,
@@ -26,8 +18,14 @@ import {
   ArrowRight,
   MessageCircle,
 } from 'lucide-react';
+
+import { useAuth } from '@/src/contexts/AuthContext';
+import {
+  canSeeCollections as resolveCanSeeCollections,
+  canSeeExecutiveDashboard as resolveCanSeeExecutiveDashboard,
+  filterItemsByPermission,
+} from '@/src/domain/access/policies/accessPolicies';
 import { formatCurrency, cn } from '@/src/lib/utils';
-import { Link } from 'react-router-dom';
 import { getWidgetsBySlot } from '@/src/app/moduleRegistry';
 import { dashboardStatCardDefinitions } from '@/src/modules/dashboard/config/statCards';
 import {
@@ -48,22 +46,6 @@ interface DashboardStatCard {
   requiredPermission?: 'dashboard_executive';
 }
 
-interface RecentActivity {
-  id: string;
-  type: 'payment' | 'treatment' | 'patient';
-  patient: string;
-  description: string;
-  amount: number;
-  date: string;
-  rawDate: Date;
-}
-
-interface ReminderState {
-  dueWithinAlertDays: number;
-  overdue: number;
-  pendingTreatments: number;
-}
-
 interface DashboardNotificationPreferences {
   dueAlertDays: number;
   showDashboardAlertSummary: boolean;
@@ -82,11 +64,12 @@ export default function DashboardPage() {
 
   const canSeeExecutiveDashboard = resolveCanSeeExecutiveDashboard(permissions);
   const canSeeCollections = resolveCanSeeCollections(permissions);
+  const canSeeActivities = hasPermission('activities_view');
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
-  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
-  const [reminders, setReminders] = useState<ReminderState>({
+  const [recentActivities, setRecentActivities] = useState<DashboardRecentActivity[]>([]);
+  const [reminders, setReminders] = useState<DashboardReminderState>({
     dueWithinAlertDays: 0,
     overdue: 0,
     pendingTreatments: 0,
@@ -101,69 +84,69 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [canSeeActivities]);
 
   async function fetchDashboardData() {
-  setLoading(true);
+    setLoading(true);
 
-  try {
-    const snapshot = await getDashboardSnapshot();
+    try {
+      const snapshot = await getDashboardSnapshot({
+        includeRecentActivities: canSeeActivities,
+      });
 
-    setNotificationPreferences(snapshot.notificationPreferences);
+      setNotificationPreferences(snapshot.notificationPreferences);
 
-    setStats(
-      dashboardStatCardDefinitions.map((card) => {
-        let value: string | number = 0;
+      setStats(
+        dashboardStatCardDefinitions.map((card) => {
+          let value: string | number = 0;
 
-        switch (card.key) {
-          case 'patients.total':
-            value = snapshot.metrics.patientCount;
-            break;
+          switch (card.key) {
+            case 'patients.total':
+              value = snapshot.metrics.patientCount;
+              break;
+            case 'treatments.active':
+              value = snapshot.metrics.activeTreatmentsCount;
+              break;
+            case 'revenue.month':
+              value = formatCurrency(snapshot.metrics.monthlyRevenue);
+              break;
+            case 'collections.overdue':
+              value = snapshot.metrics.overdueCount;
+              break;
+            default:
+              value = 0;
+          }
 
-          case 'treatments.active':
-            value = snapshot.metrics.activeTreatmentsCount;
-            break;
+          return {
+            label: card.label,
+            value,
+            icon: card.icon,
+            color: card.color,
+            to: card.to,
+            helperText: card.helperText,
+            requiredPermission: card.requiredPermission,
+          };
+        })
+      );
 
-          case 'revenue.month':
-            value = formatCurrency(snapshot.metrics.monthlyRevenue);
-            break;
+      setRecentActivities(canSeeActivities ? snapshot.recentActivities : []);
+      setReminders(snapshot.reminders);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
 
-          case 'collections.overdue':
-            value = snapshot.metrics.overdueCount;
-            break;
+      setNotificationPreferences({
+        dueAlertDays: 3,
+        showDashboardAlertSummary: true,
+        enableWhatsappQuickCharge: true,
+      });
 
-          default:
-            value = 0;
-        }
-
-        return {
-          label: card.label,
-          value,
-          icon: card.icon,
-          color: card.color,
-          to: card.to,
-          helperText: card.helperText,
-          requiredPermission: card.requiredPermission,
-        };
-      })
-    );
-
-    setRecentActivities(snapshot.recentActivities);
-    setReminders(snapshot.reminders);
-  } catch (error) {
-    console.error('Error fetching dashboard data:', error);
-
-    setNotificationPreferences({
-      dueAlertDays: 3,
-      showDashboardAlertSummary: true,
-      enableWhatsappQuickCharge: true,
-    });
-  } finally {
-    setLoading(false);
+      setRecentActivities([]);
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
-  function getActivityVisual(type: RecentActivity['type']) {
+  function getActivityVisual(type: DashboardRecentActivity['type']) {
     if (type === 'payment') {
       return {
         bg: 'bg-green-100',
@@ -267,12 +250,17 @@ export default function DashboardPage() {
     return filterItemsByPermission(stats, permissions);
   }, [stats, permissions]);
 
-const reminderActions = getReminderActions();
-const primaryReminderCTA = getPrimaryReminderCTA();
+  const rightColumnWidgets = useMemo(() => {
+    return filterItemsByPermission(getWidgetsBySlot('dashboard.panel.right'), permissions);
+  }, [permissions]);
 
-const rightColumnWidgets = useMemo(() => {
-  return filterItemsByPermission(getWidgetsBySlot('dashboard.panel.right'), permissions);
- }, [permissions]);
+  const reminderActions = getReminderActions();
+  const primaryReminderCTA = getPrimaryReminderCTA();
+
+  const showReminderCard =
+    canSeeCollections && notificationPreferences.showDashboardAlertSummary;
+
+  const showRightColumn = rightColumnWidgets.length > 0 || showReminderCard;
 
   if (loading) {
     return (
@@ -295,7 +283,11 @@ const rightColumnWidgets = useMemo(() => {
         <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border shadow-sm">
           <Calendar size={18} className="text-gray-400" />
           <span className="text-sm font-medium text-gray-700">
-            {new Date().toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
+            {new Date().toLocaleString('pt-BR', {
+              month: 'long',
+              year: 'numeric',
+              timeZone: 'America/Sao_Paulo',
+            })}
           </span>
         </div>
       </div>
@@ -333,148 +325,157 @@ const rightColumnWidgets = useMemo(() => {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div
-          className={cn(
-            'bg-white rounded-xl border shadow-sm overflow-hidden',
-            canSeeCollections ? 'lg:col-span-2' : 'lg:col-span-3'
-          )}
-        >
-          <div className="px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="font-bold text-gray-900">Atividades Recentes</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                Resumo rápido das últimas movimentações registradas no sistema.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-                Mostrando {RECENT_ACTIVITIES_LIMIT} mais recentes
-              </div>
-
-              <Link
-                to="/atividades"
-                className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-white px-3 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors"
-              >
-                Ver histórico completo
-                <ArrowRight size={13} />
-              </Link>
-            </div>
-          </div>
-
-          <div className="divide-y">
-            {recentActivities.length > 0 ? (
-              recentActivities.map((activity) => {
-                const visual = getActivityVisual(activity.type);
-                const ActivityIcon = visual.icon;
-
-                return (
-                  <div
-                    key={activity.id}
-                    className="px-6 py-3.5 flex items-center justify-between gap-4 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div
-                        className={cn(
-                          'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
-                          visual.bg,
-                          visual.text
-                        )}
-                      >
-                        <ActivityIcon size={16} />
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">
-                          {activity.patient}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-0.5 truncate">
-                          {activity.description}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      {activity.amount > 0 && (
-                        <p className="text-sm font-bold text-gray-900">
-                          {formatCurrency(activity.amount)}
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-400 mt-0.5">{activity.date}</p>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="px-6 py-10 text-center">
-                <p className="text-sm text-gray-500">Nenhuma atividade recente encontrada.</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          {rightColumnWidgets.map((widget) => {
-            const WidgetComponent = widget.component as React.ComponentType;
-
-            return <WidgetComponent key={widget.key} />;
-          })}
-
-  {canSeeCollections && notificationPreferences.showDashboardAlertSummary && (
-            <div className="bg-white rounded-xl border shadow-sm p-6">
-              <div className="flex items-start justify-between gap-3 mb-4">
+      {(canSeeActivities || showRightColumn) && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {canSeeActivities && (
+            <div
+              className={cn(
+                'bg-white rounded-xl border shadow-sm overflow-hidden',
+                showRightColumn ? 'lg:col-span-2' : 'lg:col-span-3'
+              )}
+            >
+              <div className="px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-bold text-gray-900">Lembretes de Cobrança</h3>
+                  <h3 className="font-bold text-gray-900">Atividades Recentes</h3>
                   <p className="text-xs text-gray-500 mt-1">
-                    Acompanhe vencimentos próximos, atrasos e pendências que merecem atenção.
+                    Resumo rápido das últimas movimentações registradas no sistema.
                   </p>
                 </div>
 
-                {notificationPreferences.enableWhatsappQuickCharge && (
-                  <div className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700 shrink-0">
-                    <MessageCircle size={12} />
-                    WhatsApp pronto
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                    Mostrando {RECENT_ACTIVITIES_LIMIT} mais recentes
+                  </div>
+
+                  <Link
+                    to="/atividades"
+                    className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-white px-3 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors"
+                  >
+                    Ver histórico completo
+                    <ArrowRight size={13} />
+                  </Link>
+                </div>
+              </div>
+
+              <div className="divide-y">
+                {recentActivities.length > 0 ? (
+                  recentActivities.map((activity) => {
+                    const visual = getActivityVisual(activity.type);
+                    const ActivityIcon = visual.icon;
+
+                    return (
+                      <div
+                        key={activity.id}
+                        className="px-6 py-3.5 flex items-center justify-between gap-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div
+                            className={cn(
+                              'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
+                              visual.bg,
+                              visual.text
+                            )}
+                          >
+                            <ActivityIcon size={16} />
+                          </div>
+
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                              {activity.patient}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5 truncate">
+                              {activity.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          {activity.amount > 0 && (
+                            <p className="text-sm font-bold text-gray-900">
+                              {formatCurrency(activity.amount)}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-400 mt-0.5">{activity.date}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="px-6 py-10 text-center">
+                    <p className="text-sm text-gray-500">
+                      Nenhuma atividade recente encontrada.
+                    </p>
                   </div>
                 )}
               </div>
+            </div>
+          )}
 
-              <div className="space-y-3">
-                {reminderActions.map((item) => (
-                  <Link
-                    key={item.label}
-                    to={item.to}
-                    className="flex items-start gap-3 rounded-lg border px-3 py-3 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', item.dotColor)} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{item.helperText}</p>
+          {showRightColumn && (
+            <div className={cn('space-y-6', !canSeeActivities && 'lg:col-span-3')}>
+              {rightColumnWidgets.map((widget) => {
+                const WidgetComponent = widget.component as React.ComponentType;
+                return <WidgetComponent key={widget.key} />;
+              })}
+
+              {showReminderCard && (
+                <div className="bg-white rounded-xl border shadow-sm p-6">
+                  <div className="flex items-start justify-between gap-3 mb-4">
+                    <div>
+                      <h3 className="font-bold text-gray-900">Lembretes de Cobrança</h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Acompanhe vencimentos próximos, atrasos e pendências que merecem atenção.
+                      </p>
                     </div>
-                  </Link>
-                ))}
-              </div>
 
-              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Link
-                  to={primaryReminderCTA.to}
-                  className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
-                >
-                  {primaryReminderCTA.label}
-                  <ArrowRight size={16} />
-                </Link>
+                    {notificationPreferences.enableWhatsappQuickCharge && (
+                      <div className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700 shrink-0">
+                        <MessageCircle size={12} />
+                        WhatsApp pronto
+                      </div>
+                    )}
+                  </div>
 
-                <Link
-                  to="/parcelas"
-                  className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-blue-100 text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors"
-                >
-                  Abrir parcelas
-                </Link>
-              </div>
+                  <div className="space-y-3">
+                    {reminderActions.map((item) => (
+                      <Link
+                        key={item.label}
+                        to={item.to}
+                        className="flex items-start gap-3 rounded-lg border px-3 py-3 hover:bg-gray-50 transition-colors"
+                      >
+                        <div
+                          className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', item.dotColor)}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{item.helperText}</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Link
+                      to={primaryReminderCTA.to}
+                      className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+                    >
+                      {primaryReminderCTA.label}
+                      <ArrowRight size={16} />
+                    </Link>
+
+                    <Link
+                      to="/parcelas"
+                      className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-blue-100 text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors"
+                    >
+                      Abrir parcelas
+                    </Link>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

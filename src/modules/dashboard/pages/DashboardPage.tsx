@@ -3,8 +3,9 @@
  * Nesta etapa:
  * - aplica dashboard_executive
  * - aplica collections_view
- * - passa a aplicar activities_view
+ * - aplica activities_view
  * - não busca nem exibe atividades recentes para quem não possui essa permissão
+ * - torna as atividades recentes clicáveis quando existe destino válido
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -17,13 +18,13 @@ import {
   Loader2,
   ArrowRight,
   MessageCircle,
+  Stethoscope,
+  Bell,
 } from 'lucide-react';
 
 import { useAuth } from '@/src/contexts/AuthContext';
-import { canViewOperationalFinancialData, canViewFinancialSummary } from '@/src/domain/access/policies/financialScopePolicies';
 import {
   canSeeCollections as resolveCanSeeCollections,
-  canSeeExecutiveDashboard as resolveCanSeeExecutiveDashboard,
   filterItemsByPermission,
 } from '@/src/domain/access/policies/accessPolicies';
 import { formatCurrency, cn } from '@/src/lib/utils';
@@ -61,13 +62,10 @@ interface ReminderAction {
 }
 
 export default function DashboardPage() {
-  const { permissions, hasPermission, financialScope } = useAuth();
+  const { permissions, hasPermission } = useAuth();
 
-  const canSeeExecutiveDashboard = resolveCanSeeExecutiveDashboard(permissions);
   const canSeeCollections = resolveCanSeeCollections(permissions);
   const canSeeActivities = hasPermission('activities_view');
-  const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
-  const canViewSummaryFinancials = canViewFinancialSummary(financialScope);
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
@@ -111,7 +109,7 @@ export default function DashboardPage() {
               value = snapshot.metrics.activeTreatmentsCount;
               break;
             case 'revenue.month':
-              value = canViewSummaryFinancials ? formatCurrency(snapshot.metrics.monthlyRevenue) : 'Acesso restrito';
+              value = formatCurrency(snapshot.metrics.monthlyRevenue);
               break;
             case 'collections.overdue':
               value = snapshot.metrics.overdueCount;
@@ -166,10 +164,26 @@ export default function DashboardPage() {
       };
     }
 
+    if (type === 'procedure') {
+      return {
+        bg: 'bg-violet-100',
+        text: 'text-violet-700',
+        icon: Stethoscope,
+      };
+    }
+
+    if (type === 'patient') {
+      return {
+        bg: 'bg-purple-100',
+        text: 'text-purple-700',
+        icon: Users,
+      };
+    }
+
     return {
       bg: 'bg-gray-100',
       text: 'text-gray-700',
-      icon: Users,
+      icon: Bell,
     };
   }
 
@@ -366,11 +380,8 @@ export default function DashboardPage() {
                     const visual = getActivityVisual(activity.type);
                     const ActivityIcon = visual.icon;
 
-                    return (
-                      <div
-                        key={activity.id}
-                        className="px-6 py-3.5 flex items-center justify-between gap-4 hover:bg-gray-50 transition-colors"
-                      >
+                    const content = (
+                      <div className="px-6 py-3.5 flex items-center justify-between gap-4">
                         <div className="flex items-start gap-3 min-w-0">
                           <div
                             className={cn(
@@ -384,7 +395,7 @@ export default function DashboardPage() {
 
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-gray-900 truncate">
-                              {activity.patient}
+                              {activity.title}
                             </p>
                             <p className="text-xs text-gray-500 mt-0.5 truncate">
                               {activity.description}
@@ -393,13 +404,38 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="text-right shrink-0">
-                          {activity.amount > 0 && (
-                            <p className="text-sm font-bold text-gray-900">
-                              {canViewOperationalFinancials ? formatCurrency(activity.amount) : 'Acesso restrito'}
+                          {activity.to && (
+                            <p className="text-[11px] font-bold text-blue-600 mb-0.5">
+                              Abrir item
                             </p>
                           )}
+
+                          {activity.amount > 0 && (
+                            <p className="text-sm font-bold text-gray-900">
+                              {formatCurrency(activity.amount)}
+                            </p>
+                          )}
+
                           <p className="text-xs text-gray-400 mt-0.5">{activity.date}</p>
                         </div>
+                      </div>
+                    );
+
+                    if (activity.to) {
+                      return (
+                        <Link
+                          key={activity.id}
+                          to={activity.to}
+                          className="block hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {content}
+                        </Link>
+                      );
+                    }
+
+                    return (
+                      <div key={activity.id} className="hover:bg-gray-50 transition-colors">
+                        {content}
                       </div>
                     );
                   })

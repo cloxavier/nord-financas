@@ -1,11 +1,12 @@
 /**
  * Página de Gestão de Cobranças.
- *
- * Regra desta fase:
- * - aba "Em Atraso" = parcelas reais em atraso (fonte canônica)
- * - aba "Próximos Vencimentos" = fila operacional real de collection_tasks
+ * Nesta etapa:
+ * - a fila passa a ser paginada
+ * - a busca passa a ser feita no servidor
+ * - as abas continuam separando atraso real e próximos vencimentos
+ * - as ações operacionais continuam disponíveis
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Search,
   Phone,
@@ -16,10 +17,16 @@ import {
   Copy,
   CheckCircle2,
   XCircle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { canViewFinancialSummary, canViewOpenAmountTotal, canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
+import {
+  canViewFinancialSummary,
+  canViewOpenAmountTotal,
+  canViewOperationalFinancialData,
+} from '@/src/domain/access/policies/financialScopePolicies';
 import { cn, formatCurrency, formatDate } from '../lib/utils';
 import {
   BillingQueueFilter,
@@ -39,36 +46,84 @@ const emptySummary: CollectionOperationalSummary = {
   totalOverdueAmount: 0,
 };
 
+function useDebouncedValue<T>(value: T, delay = 350) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedValue(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+function getPaginationLabel(page: number, pageSize: number, totalCount: number) {
+  if (totalCount === 0) return 'Nenhum resultado encontrado';
+
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, totalCount);
+  return `Mostrando ${start}-${end} de ${totalCount} cobranças`;
+}
+
 export default function BillingPage() {
   const { financialScope } = useAuth();
   const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
-  const canViewSummaryFinancials = canViewFinancialSummary(financialScope) || canViewOpenAmountTotal(financialScope);
+  const canViewSummaryFinancials =
+    canViewFinancialSummary(financialScope) || canViewOpenAmountTotal(financialScope);
 
   const renderOperationalAmount = (value: number) =>
     canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
 
   const renderSummaryAmount = (value: number) =>
     canViewSummaryFinancials ? formatCurrency(value) : 'Acesso restrito';
+
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<BillingQueueRow[]>([]);
   const [summary, setSummary] = useState<CollectionOperationalSummary>(emptySummary);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<BillingQueueFilter>('overdue');
   const [processingTaskId, setProcessingTaskId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 350);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearchTerm, statusFilter, pageSize]);
 
   useEffect(() => {
     fetchBillingData();
-  }, [statusFilter]);
+  }, [statusFilter, page, pageSize, debouncedSearchTerm]);
 
   async function fetchBillingData() {
     setLoading(true);
 
     try {
-      const result = await getBillingQueueData(statusFilter);
+      const result = await getBillingQueueData({
+        filter: statusFilter,
+        page,
+        pageSize,
+        searchTerm: debouncedSearchTerm,
+      });
+
+      if (result.totalPages > 0 && page > result.totalPages) {
+        setPage(result.totalPages);
+        return;
+      }
+
       setRows(result.rows);
       setSummary(result.summary);
+      setTotalCount(result.totalCount);
+      setTotalPages(result.totalPages);
     } catch (error) {
       console.error('Error fetching billing data:', error);
+      setRows([]);
+      setSummary(emptySummary);
+      setTotalCount(0);
+      setTotalPages(0);
     } finally {
       setLoading(false);
     }
@@ -93,7 +148,6 @@ export default function BillingPage() {
     if (!taskId) return;
 
     const confirmed = window.confirm('Deseja realmente dispensar esta tarefa?');
-
     if (!confirmed) return;
 
     try {
@@ -108,16 +162,10 @@ export default function BillingPage() {
     }
   }
 
-  const normalizedSearch = searchTerm.trim().toLowerCase();
-
-  const filteredRows = rows.filter((row) => {
-    if (!normalizedSearch) return true;
-
-    return (
-      row.patientName.toLowerCase().includes(normalizedSearch) ||
-      (row.treatmentId || '').toLowerCase().includes(normalizedSearch)
-    );
-  });
+  const paginationLabel = useMemo(
+    () => getPaginationLabel(page, pageSize, totalCount),
+    [page, pageSize, totalCount]
+  );
 
   const getWhatsAppLink = (phone: string, name: string, amount: number, dueDate: string) => {
     const amountText = canViewOperationalFinancials ? formatCurrency(amount) : 'sua parcela';
@@ -125,10 +173,10 @@ export default function BillingPage() {
     return `https://wa.me/${(phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
   };
 
-  const copyBillingMessage = (name: string, amount: number, dueDate: string) => {
+  const copyBillingMessage = async (name: string, amount: number, dueDate: string) => {
     const amountText = canViewOperationalFinancials ? formatCurrency(amount) : 'sua parcela';
     const message = `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que ${amountText} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
-    navigator.clipboard.writeText(message);
+    await navigator.clipboard.writeText(message);
     alert('Mensagem copiada para a área de transferência!');
   };
 
@@ -173,7 +221,7 @@ export default function BillingPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="md:col-span-3 space-y-4">
-          <div className="bg-white rounded-xl border shadow-sm p-4 flex items-center gap-4">
+          <div className="bg-white rounded-xl border shadow-sm p-4 flex flex-col xl:flex-row gap-4 xl:items-center">
             <div className="relative flex-1">
               <Search
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -181,15 +229,55 @@ export default function BillingPage() {
               />
               <input
                 type="text"
-                placeholder="Buscar por paciente ou ID do tratamento..."
+                placeholder="Buscar por paciente, telefone ou ID completo do tratamento..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
+
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-medium xl:shrink-0"
+            >
+              <option value={25}>25 por página</option>
+              <option value={50}>50 por página</option>
+              <option value={100}>100 por página</option>
+            </select>
           </div>
 
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b bg-gray-50/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <p className="text-sm font-medium text-gray-600">{paginationLabel}</p>
+
+              <div className="flex items-center gap-2 self-end md:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                  disabled={loading || page <= 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={16} />
+                  Anterior
+                </button>
+
+                <span className="text-sm font-semibold text-gray-700 px-2">
+                  Página {totalPages === 0 ? 0 : page} de {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setPage((prev) => Math.min(totalPages || 1, prev + 1))}
+                  disabled={loading || page >= totalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Próxima
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -217,8 +305,8 @@ export default function BillingPage() {
                         <Loader2 className="animate-spin h-8 w-8 text-blue-600 mx-auto" />
                       </td>
                     </tr>
-                  ) : filteredRows.length > 0 ? (
-                    filteredRows.map((row) => {
+                  ) : rows.length > 0 ? (
+                    rows.map((row) => {
                       const isProcessing = !!row.taskId && processingTaskId === row.taskId;
                       const isOperationalTask = row.sourceType === 'task';
 
@@ -360,9 +448,7 @@ export default function BillingPage() {
                   ) : (
                     <tr>
                       <td colSpan={5} className="px-6 py-12 text-center">
-                        <p className="text-gray-500">
-                          Nenhuma cobrança encontrada para este filtro.
-                        </p>
+                        <p className="text-gray-500">Nenhuma cobrança encontrada para este filtro.</p>
                       </td>
                     </tr>
                   )}
@@ -375,8 +461,8 @@ export default function BillingPage() {
                 <div className="p-12 text-center">
                   <Loader2 className="animate-spin h-8 w-8 text-blue-600 mx-auto" />
                 </div>
-              ) : filteredRows.length > 0 ? (
-                filteredRows.map((row) => {
+              ) : rows.length > 0 ? (
+                rows.map((row) => {
                   const isProcessing = !!row.taskId && processingTaskId === row.taskId;
                   const isOperationalTask = row.sourceType === 'task';
 
@@ -464,9 +550,7 @@ export default function BillingPage() {
                         </a>
 
                         <button
-                          onClick={() =>
-                            copyBillingMessage(row.patientName, row.amount, row.dueDate)
-                          }
+                          onClick={() => copyBillingMessage(row.patientName, row.amount, row.dueDate)}
                           className="p-2 bg-blue-50 text-blue-600 rounded-lg"
                         >
                           <Copy size={16} />
@@ -532,23 +616,17 @@ export default function BillingPage() {
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Parcelas em atraso</span>
-                  <span className="font-bold text-gray-900">
-                    {summary.overdueInstallmentsCount}
-                  </span>
+                  <span className="font-bold text-gray-900">{summary.overdueInstallmentsCount}</span>
                 </div>
 
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Pacientes devedores</span>
-                  <span className="font-bold text-gray-900">
-                    {summary.overduePatientsCount}
-                  </span>
+                  <span className="font-bold text-gray-900">{summary.overduePatientsCount}</span>
                 </div>
 
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Tarefas na fila atual</span>
-                  <span className="font-bold text-gray-900">
-                    {summary.pendingTasksCount}
-                  </span>
+                  <span className="font-bold text-gray-900">{summary.pendingTasksCount}</span>
                 </div>
               </div>
             </div>

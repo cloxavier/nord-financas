@@ -1,15 +1,12 @@
 /**
  * Página de Listagem de Parcelas.
- * Exibe todas as parcelas de tratamentos, permitindo busca por paciente e filtragem por status efetivo.
- * Inclui um resumo financeiro (vencidas, a vencer, recebidas).
- *
- * Ajuste desta versão:
- * - o filtro usa o status efetivo da parcela
- * - "Atrasado" passa a considerar a mesma regra visual da aplicação
- * - "Pendente" passa a excluir parcelas vencidas
- * - parcelas pagas exibem o valor realmente recebido
+ * Nesta etapa:
+ * - a lista passa a usar paginação server-side
+ * - a busca passa a ser feita no servidor
+ * - o filtro por status passa a ser feito no servidor
+ * - o resumo financeiro continua no topo
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Search,
   AlertCircle,
@@ -17,124 +14,117 @@ import {
   Clock,
   Loader2,
   ChevronRight,
-  DollarSign,
+  ChevronLeft,
 } from 'lucide-react';
 import { formatCurrency, formatDate, cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { canViewFinancialSummary, canViewOpenAmountTotal, canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
-import { supabase } from '../lib/supabase';
 import {
-  getInstallmentEffectiveStatus,
-  getInstallmentEffectiveStatusLabel,
-  getInstallmentOutstandingAmount,
-  resolvePatientName,
-} from '../lib/businessRules';
+  canViewFinancialSummary,
+  canViewOpenAmountTotal,
+  canViewOperationalFinancialData,
+} from '@/src/domain/access/policies/financialScopePolicies';
+import {
+  getInstallmentsListData,
+  InstallmentListFilter,
+  InstallmentListRow,
+  InstallmentListSummary,
+} from '@/src/domain/receivables/services/installmentsListService';
 
-function roundMoney(value: number) {
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const emptySummary: InstallmentListSummary = {
+  overdueAmount: 0,
+  overdueCount: 0,
+  pendingAmount: 0,
+  pendingCount: 0,
+  paidAmount: 0,
+  paidCount: 0,
+};
+
+function useDebouncedValue<T>(value: T, delay = 350) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedValue(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+function getPaginationLabel(page: number, pageSize: number, totalCount: number) {
+  if (totalCount === 0) return 'Nenhum resultado encontrado';
+
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, totalCount);
+  return `Mostrando ${start}-${end} de ${totalCount} parcelas`;
 }
 
 export default function InstallmentsPage() {
   const { financialScope } = useAuth();
   const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
-  const canViewSummaryFinancials = canViewFinancialSummary(financialScope) || canViewOpenAmountTotal(financialScope);
+  const canViewSummaryFinancials =
+    canViewFinancialSummary(financialScope) || canViewOpenAmountTotal(financialScope);
 
   const renderOperationalAmount = (value: number) =>
     canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
 
   const renderSummaryAmount = (value: number) =>
     canViewSummaryFinancials ? formatCurrency(value) : 'Acesso restrito';
+
   const [loading, setLoading] = useState(true);
-  const [installments, setInstallments] = useState<any[]>([]);
+  const [rows, setRows] = useState<InstallmentListRow[]>([]);
+  const [summary, setSummary] = useState<InstallmentListSummary>(emptySummary);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<InstallmentListFilter>('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 350);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearchTerm, statusFilter, pageSize]);
 
   useEffect(() => {
     fetchInstallments();
-  }, []);
+  }, [page, pageSize, statusFilter, debouncedSearchTerm]);
 
   async function fetchInstallments() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase
-        .from('installments')
-        .select('*, treatments(id, patient_id, patient_name_snapshot, patients(id, full_name))')
-        .order('due_date', { ascending: true });
-
-      if (error) throw error;
-
-      const processed = (data || []).map((item) => {
-        const effectiveStatus = getInstallmentEffectiveStatus(item);
-        const patientName = resolvePatientName(item);
-        const outstandingAmount = roundMoney(getInstallmentOutstandingAmount(item));
-        const actualReceivedAmount = roundMoney(Number(item.amount_paid || item.amount || 0));
-
-        return {
-          ...item,
-          effectiveStatus,
-          effectiveStatusLabel: getInstallmentEffectiveStatusLabel(item),
-          patientName,
-          outstandingAmount,
-          actualReceivedAmount,
-        };
+      const result = await getInstallmentsListData({
+        page,
+        pageSize,
+        searchTerm: debouncedSearchTerm,
+        statusFilter,
       });
 
-      setInstallments(processed);
+      if (result.totalPages > 0 && page > result.totalPages) {
+        setPage(result.totalPages);
+        return;
+      }
+
+      setRows(result.rows);
+      setSummary(result.summary);
+      setTotalCount(result.totalCount);
+      setTotalPages(result.totalPages);
     } catch (error) {
       console.error('Error fetching installments:', error);
+      setRows([]);
+      setTotalCount(0);
+      setTotalPages(0);
     } finally {
       setLoading(false);
     }
   }
 
-  const filteredInstallments = useMemo(() => {
-    return installments.filter((inst) => {
-      const patientName = (inst.patientName || '').toLowerCase();
-      const treatmentId = String(inst.treatment_id || '').toLowerCase();
-      const search = searchTerm.toLowerCase();
-
-      const matchesSearch =
-        patientName.includes(search) || treatmentId.includes(search);
-
-      const matchesStatus =
-        statusFilter === 'all'
-          ? true
-          : inst.effectiveStatus === statusFilter;
-
-      return matchesSearch && matchesStatus;
-    });
-  }, [installments, searchTerm, statusFilter]);
-
-  const stats = useMemo(() => {
-    const overdueInstallments = installments.filter(
-      (i) => i.effectiveStatus === 'overdue'
-    );
-    const pendingInstallments = installments.filter(
-      (i) => i.effectiveStatus === 'pending'
-    );
-    const paidInstallments = installments.filter(
-      (i) => i.effectiveStatus === 'paid'
-    );
-
-    return {
-      overdueAmount: roundMoney(
-        overdueInstallments.reduce((sum, i) => sum + i.outstandingAmount, 0)
-      ),
-      overdueCount: overdueInstallments.length,
-
-      pendingAmount: roundMoney(
-        pendingInstallments.reduce((sum, i) => sum + i.outstandingAmount, 0)
-      ),
-      pendingCount: pendingInstallments.length,
-
-      paidAmount: roundMoney(
-        paidInstallments.reduce((sum, i) => sum + i.actualReceivedAmount, 0)
-      ),
-      paidCount: paidInstallments.length,
-    };
-  }, [installments]);
+  const paginationLabel = useMemo(
+    () => getPaginationLabel(page, pageSize, totalCount),
+    [page, pageSize, totalCount]
+  );
 
   return (
     <div className="space-y-6">
@@ -156,10 +146,10 @@ export default function InstallmentsPage() {
             <AlertCircle size={18} className="text-red-400" />
           </div>
           <p className="text-2xl font-bold text-gray-900">
-            {renderSummaryAmount(stats.overdueAmount)}
+            {renderSummaryAmount(summary.overdueAmount)}
           </p>
           <p className="text-xs text-gray-500 mt-1 font-medium">
-            {stats.overdueCount} parcelas em atraso
+            {summary.overdueCount} parcelas em atraso
           </p>
         </div>
 
@@ -171,10 +161,10 @@ export default function InstallmentsPage() {
             <Clock size={18} className="text-blue-400" />
           </div>
           <p className="text-2xl font-bold text-gray-900">
-            {renderSummaryAmount(stats.pendingAmount)}
+            {renderSummaryAmount(summary.pendingAmount)}
           </p>
           <p className="text-xs text-gray-500 mt-1 font-medium">
-            {stats.pendingCount} parcelas previstas
+            {summary.pendingCount} parcelas previstas
           </p>
         </div>
 
@@ -186,15 +176,15 @@ export default function InstallmentsPage() {
             <CheckCircle size={18} className="text-green-400" />
           </div>
           <p className="text-2xl font-bold text-gray-900">
-            {renderSummaryAmount(stats.paidAmount)}
+            {renderSummaryAmount(summary.paidAmount)}
           </p>
           <p className="text-xs text-gray-500 mt-1 font-medium">
-            {stats.paidCount} parcelas pagas
+            {summary.paidCount} parcelas pagas
           </p>
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-xl border shadow-sm flex flex-col md:flex-row gap-4">
+      <div className="bg-white p-4 rounded-xl border shadow-sm flex flex-col xl:flex-row gap-4 xl:items-center">
         <div className="flex-1 relative">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -202,26 +192,68 @@ export default function InstallmentsPage() {
           />
           <input
             type="text"
-            placeholder="Buscar por paciente ou ID do tratamento..."
+            placeholder="Buscar por paciente, telefone ou ID completo do tratamento..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
           />
         </div>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-medium"
-        >
-          <option value="all">Todos os Status</option>
-          <option value="pending">Pendente</option>
-          <option value="paid">Pago</option>
-          <option value="overdue">Atrasado</option>
-        </select>
+        <div className="flex flex-col sm:flex-row gap-3 xl:shrink-0">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as InstallmentListFilter)}
+            className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-medium"
+          >
+            <option value="all">Todos os Status</option>
+            <option value="pending">Pendente</option>
+            <option value="paid">Pago</option>
+            <option value="overdue">Atrasado</option>
+          </select>
+
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-medium"
+          >
+            <option value={25}>25 por página</option>
+            <option value={50}>50 por página</option>
+            <option value={100}>100 por página</option>
+          </select>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b bg-gray-50/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <p className="text-sm font-medium text-gray-600">{paginationLabel}</p>
+
+          <div className="flex items-center gap-2 self-end md:self-auto">
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={loading || page <= 1}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={16} />
+              Anterior
+            </button>
+
+            <span className="text-sm font-semibold text-gray-700 px-2">
+              Página {totalPages === 0 ? 0 : page} de {totalPages}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.min(totalPages || 1, prev + 1))}
+              disabled={loading || page >= totalPages}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Próxima
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -254,16 +286,14 @@ export default function InstallmentsPage() {
                     <Loader2 className="animate-spin h-8 w-8 text-blue-600 mx-auto" />
                   </td>
                 </tr>
-              ) : filteredInstallments.length > 0 ? (
-                filteredInstallments.map((inst) => (
+              ) : rows.length > 0 ? (
+                rows.map((inst) => (
                   <tr key={inst.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="px-6 py-4">
                       <span
                         className={cn(
                           'text-sm font-bold',
-                          inst.effectiveStatus === 'overdue'
-                            ? 'text-red-600'
-                            : 'text-gray-700'
+                          inst.effectiveStatus === 'overdue' ? 'text-red-600' : 'text-gray-700'
                         )}
                       >
                         {formatDate(inst.due_date)}
@@ -332,9 +362,7 @@ export default function InstallmentsPage() {
                         to={`/parcelas/${inst.id}`}
                         className="inline-flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors"
                       >
-                        <span>
-                          {inst.effectiveStatus === 'paid' ? 'Detalhes' : 'Dar Baixa'}
-                        </span>
+                        <span>{inst.effectiveStatus === 'paid' ? 'Detalhes' : 'Dar Baixa'}</span>
                         <ChevronRight size={16} />
                       </Link>
                     </td>
@@ -356,8 +384,8 @@ export default function InstallmentsPage() {
             <div className="p-12 text-center">
               <Loader2 className="animate-spin h-8 w-8 text-blue-600 mx-auto" />
             </div>
-          ) : filteredInstallments.length > 0 ? (
-            filteredInstallments.map((inst) => (
+          ) : rows.length > 0 ? (
+            rows.map((inst) => (
               <div key={inst.id} className="p-4 space-y-3">
                 <div className="flex justify-between items-start">
                   <div>
@@ -387,9 +415,7 @@ export default function InstallmentsPage() {
                     <p
                       className={cn(
                         'font-bold',
-                        inst.effectiveStatus === 'overdue'
-                          ? 'text-red-600'
-                          : 'text-gray-700'
+                        inst.effectiveStatus === 'overdue' ? 'text-red-600' : 'text-gray-700'
                       )}
                     >
                       {formatDate(inst.due_date)}
@@ -398,9 +424,7 @@ export default function InstallmentsPage() {
 
                   <div>
                     <p className="text-gray-400 uppercase font-bold text-[9px]">Parcela</p>
-                    <p className="font-bold text-gray-700">
-                      {inst.installment_number}ª Parcela
-                    </p>
+                    <p className="font-bold text-gray-700">{inst.installment_number}ª Parcela</p>
                   </div>
 
                   <div className="col-span-2">
@@ -427,9 +451,7 @@ export default function InstallmentsPage() {
                   className="flex items-center justify-center gap-2 w-full py-2 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold"
                 >
                   <span>
-                    {inst.effectiveStatus === 'paid'
-                      ? 'Ver Detalhes'
-                      : 'Dar Baixa / Detalhes'}
+                    {inst.effectiveStatus === 'paid' ? 'Ver Detalhes' : 'Dar Baixa / Detalhes'}
                   </span>
                   <ChevronRight size={14} />
                 </Link>

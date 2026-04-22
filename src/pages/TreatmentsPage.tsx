@@ -16,10 +16,15 @@ import {
   DollarSign
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { resolvePatientName } from '../lib/businessRules';
 
 export default function TreatmentsPage() {
+  const { financialScope } = useAuth();
+  const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
+  const renderAmount = (value: number) => canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
   // Estado para controlar o carregamento dos dados
   const [loading, setLoading] = useState(true);
   // Estado que armazena a lista de tratamentos
@@ -183,8 +188,8 @@ export default function TreatmentsPage() {
                     {getStatusBadge(t.status)}
                   </td>
                   <td className="px-6 py-4">
-                    <p className="text-sm font-bold text-gray-900">{formatCurrency(t.total_amount)}</p>
-                    <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Sub: {formatCurrency(t.subtotal)}</p>
+                    <p className="text-sm font-bold text-gray-900">{renderAmount(t.total_amount)}</p>
+                    <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Sub: {renderAmount(t.subtotal)}</p>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -238,7 +243,7 @@ export default function TreatmentsPage() {
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <p className="text-gray-400 uppercase font-bold text-[9px]">Valor Total</p>
-                  <p className="font-bold text-gray-900">{formatCurrency(t.total_amount)}</p>
+                  <p className="font-bold text-gray-900">{renderAmount(t.total_amount)}</p>
                 </div>
                 <div>
                   <p className="text-gray-400 uppercase font-bold text-[9px]">Data</p>

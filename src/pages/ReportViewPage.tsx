@@ -9,6 +9,8 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { canViewFinancialReports } from '@/src/domain/access/policies/financialScopePolicies';
 import {
   ArrowLeft,
   Printer,
@@ -44,6 +46,10 @@ type ReportType = 'fluxo-caixa' | 'inadimplencia' | 'procedimentos' | 'pacientes
 
 export default function ReportViewPage() {
   const { type } = useParams<{ type: ReportType }>();
+  const { financialScope } = useAuth();
+  const canSeeFinancialReports = canViewFinancialReports(financialScope);
+  const isFinancialReport = type === 'fluxo-caixa' || type === 'inadimplencia' || type === 'procedimentos';
+  const reportRestrictedByFinancialScope = Boolean(isFinancialReport && !canSeeFinancialReports);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -60,8 +66,14 @@ export default function ReportViewPage() {
   });
 
   useEffect(() => {
+    if (reportRestrictedByFinancialScope) {
+      setLoading(false);
+      setData(null);
+      return;
+    }
+
     fetchReportData();
-  }, [type, filters]);
+  }, [type, filters, reportRestrictedByFinancialScope]);
 
   async function fetchReportData() {
     setLoading(true);
@@ -191,6 +203,38 @@ export default function ReportViewPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
+      </div>
+    );
+  }
+
+  if (reportRestrictedByFinancialScope) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/relatorios')}
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <ArrowLeft size={20} className="text-gray-600" />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{getReportTitle()}</h1>
+            <p className="text-sm text-gray-500">Acesso financeiro restrito para este relatório.</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border shadow-sm p-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} className="text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <h2 className="font-bold text-gray-900">Relatório indisponível para este cargo</h2>
+              <p className="text-sm text-gray-600 mt-1 leading-6">
+                Seu cargo não possui escopo financeiro do tipo <strong>Financeiro</strong> ou <strong>Executivo</strong>.
+                Ajuste o escopo financeiro do cargo em Permissões e Segurança para liberar este relatório.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

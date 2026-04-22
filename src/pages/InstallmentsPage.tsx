@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate, cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { canViewFinancialSummary, canViewOpenAmountTotal, canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import { supabase } from '../lib/supabase';
 import {
   getInstallmentEffectiveStatus,
@@ -34,6 +36,15 @@ function roundMoney(value: number) {
 }
 
 export default function InstallmentsPage() {
+  const { financialScope } = useAuth();
+  const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
+  const canViewSummaryFinancials = canViewFinancialSummary(financialScope) || canViewOpenAmountTotal(financialScope);
+
+  const renderOperationalAmount = (value: number) =>
+    canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
+
+  const renderSummaryAmount = (value: number) =>
+    canViewSummaryFinancials ? formatCurrency(value) : 'Acesso restrito';
   const [loading, setLoading] = useState(true);
   const [installments, setInstallments] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -145,7 +156,7 @@ export default function InstallmentsPage() {
             <AlertCircle size={18} className="text-red-400" />
           </div>
           <p className="text-2xl font-bold text-gray-900">
-            {formatCurrency(stats.overdueAmount)}
+            {renderSummaryAmount(stats.overdueAmount)}
           </p>
           <p className="text-xs text-gray-500 mt-1 font-medium">
             {stats.overdueCount} parcelas em atraso
@@ -160,7 +171,7 @@ export default function InstallmentsPage() {
             <Clock size={18} className="text-blue-400" />
           </div>
           <p className="text-2xl font-bold text-gray-900">
-            {formatCurrency(stats.pendingAmount)}
+            {renderSummaryAmount(stats.pendingAmount)}
           </p>
           <p className="text-xs text-gray-500 mt-1 font-medium">
             {stats.pendingCount} parcelas previstas
@@ -175,7 +186,7 @@ export default function InstallmentsPage() {
             <CheckCircle size={18} className="text-green-400" />
           </div>
           <p className="text-2xl font-bold text-gray-900">
-            {formatCurrency(stats.paidAmount)}
+            {renderSummaryAmount(stats.paidAmount)}
           </p>
           <p className="text-xs text-gray-500 mt-1 font-medium">
             {stats.paidCount} parcelas pagas
@@ -274,20 +285,20 @@ export default function InstallmentsPage() {
                       {inst.effectiveStatus === 'paid' ? (
                         <div>
                           <p className="text-sm font-bold text-gray-900">
-                            {formatCurrency(inst.actualReceivedAmount)}
+                            {renderOperationalAmount(inst.actualReceivedAmount)}
                           </p>
                           <p className="text-[10px] text-gray-500 font-medium">
-                            recebido · principal {formatCurrency(inst.amount)}
+                            recebido · principal {renderOperationalAmount(inst.amount)}
                           </p>
                         </div>
                       ) : (
                         <div>
                           <p className="text-sm font-bold text-gray-900">
-                            {formatCurrency(inst.amount)}
+                            {renderOperationalAmount(inst.amount)}
                           </p>
                           {inst.effectiveStatus === 'overdue' && (
                             <p className="text-[10px] text-red-500 font-medium">
-                              em aberto {formatCurrency(inst.outstandingAmount)}
+                              em aberto {renderOperationalAmount(inst.outstandingAmount)}
                             </p>
                           )}
                         </div>
@@ -397,15 +408,15 @@ export default function InstallmentsPage() {
                     {inst.effectiveStatus === 'paid' ? (
                       <div>
                         <p className="font-bold text-gray-900">
-                          {formatCurrency(inst.actualReceivedAmount)}
+                          {renderOperationalAmount(inst.actualReceivedAmount)}
                         </p>
                         <p className="text-[10px] text-gray-500 font-medium">
-                          recebido · principal {formatCurrency(inst.amount)}
+                          recebido · principal {renderOperationalAmount(inst.amount)}
                         </p>
                       </div>
                     ) : (
                       <p className="font-bold text-gray-900">
-                        {formatCurrency(inst.amount)}
+                        {renderOperationalAmount(inst.amount)}
                       </p>
                     )}
                   </div>

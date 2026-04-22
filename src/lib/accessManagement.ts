@@ -35,7 +35,7 @@ export interface AccessRoleUpsertInput {
   description?: string | null;
   isActive: boolean;
   permissionsJson: Record<string, boolean>;
-  financialScopeJson: Record<string, boolean>;
+  financialScopeJson: Record<string, unknown>;
 }
 
 export interface AccessRoleUpsertResult {

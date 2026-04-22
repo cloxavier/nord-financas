@@ -13,7 +13,7 @@ import {
   hasPermission as checkPermission,
   normalizePermissions,
 } from '../lib/permissions';
-import { FinancialScopeMap, normalizeFinancialScope } from '@/src/lib/financialScope';
+import { FinancialScopeMap, resolveFinancialScope } from '@/src/lib/financialScope';
 
 interface AuthContextType {
   user: User | null;
@@ -194,7 +194,10 @@ const normalizedProfile: Profile = {
   }, [profile]);
 
   const financialScope = useMemo<FinancialScopeMap>(() => {
-  return normalizeFinancialScope(profile?.access_role?.financial_scope_json);
+    return resolveFinancialScope(
+      profile?.access_role?.financial_scope_json,
+      profile?.resolved_role_slug || null
+    );
   }, [profile]);
 
   const hasPermission = useCallback(

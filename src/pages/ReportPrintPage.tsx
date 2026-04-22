@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { Loader2, Printer, ArrowLeft } from 'lucide-react';
-import { formatCurrency, formatDate } from '../lib/utils';
+import { Loader2, Printer, ArrowLeft, AlertCircle } from 'lucide-react';
+import { formatCurrency, formatDate, getMonthStartDateInAppTimezone, getTodayDateInAppTimezone } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { isInstallmentOverdue, resolvePatientName } from '../lib/businessRules';
+import { useAuth } from '../contexts/AuthContext';
+import { canViewFinancialReports } from '@/src/domain/access/policies/financialScopePolicies';
 
 type ReportType = 'fluxo-caixa' | 'inadimplencia' | 'procedimentos' | 'pacientes';
 
@@ -11,17 +13,26 @@ export default function ReportPrintPage() {
   const { type } = useParams<{ type: ReportType }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  
+  const { financialScope } = useAuth();
+
+  const canSeeFinancialReports = canViewFinancialReports(financialScope);
+  const isFinancialReport = type === 'fluxo-caixa' || type === 'inadimplencia' || type === 'procedimentos';
+  const reportRestrictedByFinancialScope = Boolean(isFinancialReport && !canSeeFinancialReports);
+
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
   const [filters] = useState({
-    startDate: searchParams.get('start') || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: searchParams.get('end') || new Date().toISOString().split('T')[0]
+    startDate: searchParams.get('start') || getMonthStartDateInAppTimezone(),
+    endDate: searchParams.get('end') || getTodayDateInAppTimezone(),
   });
 
   useEffect(() => {
+    if (reportRestrictedByFinancialScope) {
+      setLoading(false);
+      return;
+    }
     fetchReportData();
-  }, [type]);
+  }, [type, reportRestrictedByFinancialScope]);
 
   async function fetchReportData() {
     setLoading(true);
@@ -33,13 +44,13 @@ export default function ReportPrintPage() {
           .gte('payment_date', filters.startDate)
           .lte('payment_date', filters.endDate)
           .order('payment_date', { ascending: true });
-        
+
         if (error) throw error;
-        
+
         setData({
           total: (payments || []).reduce((sum, p: any) => sum + p.amount_paid, 0),
           count: payments?.length || 0,
-          details: payments || []
+          details: payments || [],
         });
       } else if (type === 'inadimplencia') {
         const { data: installments, error } = await supabase
@@ -47,24 +58,26 @@ export default function ReportPrintPage() {
           .select('*, treatments(id, patient_id, patient_name_snapshot, patients(id, full_name))')
           .not('status', 'in', '("paid","cancelled")')
           .order('due_date', { ascending: true });
-        
+
         if (error) throw error;
 
-        const overdue = (installments || []).filter(isInstallmentOverdue).map(item => ({
-          ...item,
-          patientName: resolvePatientName(item)
-        }));
+        const overdue = (installments || [])
+          .filter(isInstallmentOverdue)
+          .map((item) => ({
+            ...item,
+            patientName: resolvePatientName(item),
+          }));
 
         setData({
           total: overdue.reduce((sum, p: any) => sum + (p.amount - (p.amount_paid || 0)), 0),
           count: overdue.length,
-          details: overdue
+          details: overdue,
         });
       } else if (type === 'procedimentos') {
         const { data: items, error } = await supabase
           .from('treatment_items')
           .select('*');
-        
+
         if (error) throw error;
 
         const grouped = (items || []).reduce((acc: any, curr: any) => {
@@ -76,25 +89,7 @@ export default function ReportPrintPage() {
         }, {});
 
         const chartData = Object.values(grouped).sort((a: any, b: any) => b.total - a.total);
-
-        setData({
-          details: chartData
-        });
-      } else if (type === 'pacientes') {
-        // Basic implementation for patients report
-        const { data: patients, error } = await supabase
-          .from('patients')
-          .select('*')
-          .gte('created_at', filters.startDate)
-          .lte('created_at', filters.endDate)
-          .order('created_at', { ascending: true });
-        
-        if (error) throw error;
-
-        setData({
-          count: patients?.length || 0,
-          details: patients || []
-        });
+        setData({ details: chartData });
       }
     } catch (error) {
       console.error('Error fetching report:', error);
@@ -102,15 +97,6 @@ export default function ReportPrintPage() {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    if (!loading && data) {
-      const timer = setTimeout(() => {
-        window.print();
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, data]);
 
   const getReportTitle = () => {
     switch (type) {
@@ -123,178 +109,147 @@ export default function ReportPrintPage() {
   };
 
   if (loading) {
+    return <div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin h-10 w-10 text-blue-600" /></div>;
+  }
+
+  if (reportRestrictedByFinancialScope) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
-        <Loader2 className="animate-spin h-10 w-10 text-blue-600" />
-        <p className="text-gray-500 font-medium">Preparando relatório para impressão...</p>
+      <div className="min-h-screen bg-gray-100 p-8">
+        <div className="max-w-4xl mx-auto bg-white rounded-xl border shadow-sm p-8">
+          <button onClick={() => navigate('/relatorios')} className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:underline mb-6">
+            <ArrowLeft size={16} /> Voltar
+          </button>
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} className="text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">{getReportTitle()}</h1>
+              <p className="text-sm text-gray-600 mt-2 leading-6">
+                Este relatório depende de escopo financeiro do tipo <strong>Financeiro</strong> ou <strong>Executivo</strong>.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-white p-4 md:p-8">
-      {/* Controls - Hidden on print */}
-      <div className="max-w-4xl mx-auto mb-8 flex items-center justify-between print:hidden bg-gray-50 p-4 rounded-xl border border-gray-200">
-        <button 
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 font-bold transition-colors"
-        >
-          <ArrowLeft size={20} />
-          Voltar
-        </button>
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-gray-500 mr-4">O diálogo de impressão deve abrir automaticamente.</p>
-          <button 
-            onClick={() => window.print()}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
-          >
-            <Printer size={20} />
-            Imprimir agora
+    <div className="min-h-screen bg-gray-100 p-4 md:p-8 print:p-0 print:bg-white">
+      <div className="max-w-6xl mx-auto bg-white rounded-xl shadow-sm border print:shadow-none print:border-none print:max-w-none">
+        <div className="p-4 md:p-6 print:hidden border-b flex justify-between items-center">
+          <div>
+            <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:underline">
+              <ArrowLeft size={16} /> Voltar
+            </button>
+            <h1 className="text-xl font-bold text-gray-900 mt-2">{getReportTitle()}</h1>
+          </div>
+          <button onClick={() => window.print()} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">
+            <Printer size={16} /> Imprimir / PDF
           </button>
         </div>
-      </div>
 
-      {/* Printable Content */}
-      <div className="max-w-4xl mx-auto bg-white print:p-0">
-        {/* Header */}
-        <div className="border-b-2 border-gray-900 pb-6 mb-8 flex justify-between items-start">
-          <div>
+        <div className="p-6 md:p-8 print:p-0">
+          <div className="hidden print:block border-b-2 border-gray-900 pb-4 mb-6">
             <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Nord Finanças</h1>
-            <p className="text-sm text-gray-500 font-medium">Relatório Administrativo</p>
+            <div className="flex justify-between items-end mt-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">{getReportTitle()}</h2>
+                <p className="text-sm text-gray-600">Período: {formatDate(filters.startDate)} até {formatDate(filters.endDate)}</p>
+              </div>
+              <p className="text-xs text-gray-500">Emissão: {formatDate(new Date().toISOString())}</p>
+            </div>
           </div>
-          <div className="text-right">
-            <h2 className="text-xl font-bold text-gray-900">{getReportTitle()}</h2>
-            <p className="text-xs text-gray-500">Emissão: {new Date().toLocaleString('pt-BR')}</p>
-            <p className="text-xs font-bold text-gray-700 mt-1">
-              Período: {formatDate(filters.startDate)} até {formatDate(filters.endDate)}
-            </p>
-          </div>
-        </div>
 
-        {/* Summary Section */}
-        {data && (
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            {type === 'fluxo-caixa' && (
-              <>
-                <div className="p-4 border rounded-lg bg-gray-50">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Total Recebido</p>
-                  <p className="text-xl font-bold text-gray-900">{formatCurrency(data.total)}</p>
-                </div>
-                <div className="p-4 border rounded-lg bg-gray-50">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Qtd Pagamentos</p>
-                  <p className="text-xl font-bold text-gray-900">{data.count}</p>
-                </div>
-                <div className="p-4 border rounded-lg bg-gray-50">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Ticket Médio</p>
-                  <p className="text-xl font-bold text-gray-900">{formatCurrency(data.total / (data.count || 1))}</p>
-                </div>
-              </>
-            )}
-            {type === 'inadimplencia' && (
-              <>
-                <div className="p-4 border rounded-lg bg-gray-50">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Total em Atraso</p>
-                  <p className="text-xl font-bold text-gray-900">{formatCurrency(data.total)}</p>
-                </div>
-                <div className="p-4 border rounded-lg bg-gray-50">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Parcelas Pendentes</p>
-                  <p className="text-xl font-bold text-gray-900">{data.count}</p>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Details Table */}
-        {data && data.details && (
-          <div className="mb-8">
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Detalhamento dos Registros</h3>
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b-2 border-gray-100 text-left bg-gray-50">
+          {data && (
+            <>
+              {(type === 'fluxo-caixa' || type === 'inadimplencia') && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
                   {type === 'fluxo-caixa' && (
                     <>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Data</th>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Método</th>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Valor</th>
+                      <div className="rounded-xl border p-4">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Total Recebido</p>
+                        <p className="text-xl font-bold text-gray-900">{formatCurrency(data.total)}</p>
+                      </div>
+                      <div className="rounded-xl border p-4">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Qtd Pagamentos</p>
+                        <p className="text-xl font-bold text-gray-900">{data.count}</p>
+                      </div>
+                      <div className="rounded-xl border p-4">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Ticket Médio</p>
+                        <p className="text-xl font-bold text-gray-900">{formatCurrency(data.total / (data.count || 1))}</p>
+                      </div>
                     </>
                   )}
-                  {type === 'inadimplencia' && (
-                    <>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Paciente</th>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Vencimento</th>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Valor em Aberto</th>
-                    </>
-                  )}
-                  {type === 'procedimentos' && (
-                    <>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Procedimento</th>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Qtd</th>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Total Produzido</th>
-                    </>
-                  )}
-                  {type === 'pacientes' && (
-                    <>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Nome</th>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Telefone</th>
-                      <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Cadastro</th>
-                    </>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.details.map((item: any, idx: number) => (
-                  <tr key={idx}>
-                    {type === 'fluxo-caixa' && (
-                      <>
-                        <td className="py-3 px-2 text-sm text-gray-900">{formatDate(item.payment_date)}</td>
-                        <td className="py-3 px-2 text-sm text-gray-600">{item.payment_method}</td>
-                        <td className="py-3 px-2 text-sm font-bold text-gray-900 text-right">{formatCurrency(item.amount_paid)}</td>
-                      </>
-                    )}
-                    {type === 'inadimplencia' && (
-                      <>
-                        <td className="py-3 px-2 text-sm text-gray-900">{item.patientName}</td>
-                        <td className="py-3 px-2 text-sm text-red-600 font-bold">{formatDate(item.due_date)}</td>
-                        <td className="py-3 px-2 text-sm font-bold text-gray-900 text-right">{formatCurrency(item.amount - (item.amount_paid || 0))}</td>
-                      </>
-                    )}
-                    {type === 'procedimentos' && (
-                      <>
-                        <td className="py-3 px-2 text-sm text-gray-900">{item.name}</td>
-                        <td className="py-3 px-2 text-sm text-gray-600 text-center">{item.count}</td>
-                        <td className="py-3 px-2 text-sm font-bold text-gray-900 text-right">{formatCurrency(item.total)}</td>
-                      </>
-                    )}
-                    {type === 'pacientes' && (
-                      <>
-                        <td className="py-3 px-2 text-sm text-gray-900 font-bold">{item.full_name}</td>
-                        <td className="py-3 px-2 text-sm text-gray-600">{item.phone || '-'}</td>
-                        <td className="py-3 px-2 text-sm text-gray-500 text-right">{formatDate(item.created_at)}</td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
 
-        {/* Footer */}
-        <div className="mt-12 pt-8 border-t border-gray-100 text-center">
-          <p className="text-[10px] text-gray-400 uppercase tracking-widest">
-            Nord Finanças - Sistema de Gestão Odontológica
-          </p>
+                  {type === 'inadimplencia' && (
+                    <div className="rounded-xl border p-4 sm:col-span-2">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Total em Atraso</p>
+                      <p className="text-xl font-bold text-gray-900">{formatCurrency(data.total)}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-xl border overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b bg-gray-50/50">
+                      {type === 'fluxo-caixa' && (
+                        <>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Data</th>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Método</th>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Valor</th>
+                        </>
+                      )}
+                      {type === 'inadimplencia' && (
+                        <>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Paciente</th>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Vencimento</th>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Valor em Aberto</th>
+                        </>
+                      )}
+                      {type === 'procedimentos' && (
+                        <>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Procedimento</th>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Quantidade</th>
+                          <th className="py-3 px-2 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Total Produzido</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {data.details.map((item: any, idx: number) => (
+                      <tr key={idx}>
+                        {type === 'fluxo-caixa' && (
+                          <>
+                            <td className="py-3 px-2 text-sm text-gray-900">{formatDate(item.payment_date)}</td>
+                            <td className="py-3 px-2 text-sm text-gray-600">{item.payment_method}</td>
+                            <td className="py-3 px-2 text-sm font-bold text-gray-900 text-right">{formatCurrency(item.amount_paid)}</td>
+                          </>
+                        )}
+                        {type === 'inadimplencia' && (
+                          <>
+                            <td className="py-3 px-2 text-sm text-gray-900">{item.patientName}</td>
+                            <td className="py-3 px-2 text-sm text-red-600 font-bold">{formatDate(item.due_date)}</td>
+                            <td className="py-3 px-2 text-sm font-bold text-gray-900 text-right">{formatCurrency(item.amount - (item.amount_paid || 0))}</td>
+                          </>
+                        )}
+                        {type === 'procedimentos' && (
+                          <>
+                            <td className="py-3 px-2 text-sm text-gray-900">{item.name}</td>
+                            <td className="py-3 px-2 text-sm text-gray-600">{item.count}</td>
+                            <td className="py-3 px-2 text-sm font-bold text-gray-900 text-right">{formatCurrency(item.total)}</td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       </div>
-
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media print {
-          body { background: white !important; }
-          .print\\:hidden { display: none !important; }
-          @page { margin: 1cm; }
-        }
-      `}} />
     </div>
   );
 }

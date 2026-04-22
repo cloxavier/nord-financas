@@ -34,6 +34,7 @@ import {
   formatDateOnlyForInput,
 } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
+import { canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import { resolvePatientName } from '../lib/businessRules';
 import {
   getPaymentPlanValidationError,
@@ -65,7 +66,9 @@ export default function TreatmentDetailPage() {
   // Erro ao gerar parcelas
   const [generateError, setGenerateError] = useState<string | null>(null);
   // Hook de autenticação para verificar permissões
-  const { profile } = useAuth();
+  const { profile, financialScope } = useAuth();
+  const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
+  const renderAmount = (value: number) => canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
   // Controle do modal de geração de parcelas
   const [showInstallmentModal, setShowInstallmentModal] = useState(false);
   // Controle do modal de cancelamento
@@ -530,6 +533,12 @@ export default function TreatmentDetailPage() {
             </div>
           </div>
 
+          {!canViewOperationalFinancials && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+              Seu cargo pode acessar este tratamento, mas os valores financeiros e o plano de pagamento estão ocultos para este perfil.
+            </div>
+          )}
+
           {/* Tabela de itens */}
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden print:border-none print:shadow-none">
             <div className="px-6 py-4 border-b bg-gray-50/50 print:bg-transparent print:px-0">
@@ -567,10 +576,10 @@ export default function TreatmentDetailPage() {
                           {item.quantity}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-600 print:px-2 print:py-2">
-                          {formatCurrency(item.unit_price_snapshot)}
+                          {renderAmount(item.unit_price_snapshot)}
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-gray-900 text-right print:px-2 print:py-2">
-                          {formatCurrency(item.line_total)}
+                          {renderAmount(item.line_total)}
                         </td>
                       </tr>
                     ))
@@ -599,12 +608,12 @@ export default function TreatmentDetailPage() {
                           'Procedimento'}
                       </p>
                       <p className="text-sm font-bold text-blue-600">
-                        {formatCurrency(item.line_total)}
+                        {renderAmount(item.line_total)}
                       </p>
                     </div>
                     <div className="flex justify-between text-xs text-gray-500">
                       <span>Qtd: {item.quantity}</span>
-                      <span>Unit: {formatCurrency(item.unit_price_snapshot)}</span>
+                      <span>Unit: {renderAmount(item.unit_price_snapshot)}</span>
                     </div>
                   </div>
                 ))
@@ -619,7 +628,7 @@ export default function TreatmentDetailPage() {
               <div className="flex justify-between text-sm">
                 <span className="font-medium text-gray-500">Subtotal</span>
                 <span className="font-bold text-gray-900">
-                  {formatCurrency(treatment.subtotal)}
+                  {renderAmount(treatment.subtotal)}
                 </span>
               </div>
 
@@ -627,7 +636,7 @@ export default function TreatmentDetailPage() {
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-red-500">Desconto</span>
                   <span className="font-bold text-red-500">
-                    -{formatCurrency(treatment.discount_amount)}
+                    -{renderAmount(treatment.discount_amount)}
                   </span>
                 </div>
               )}
@@ -635,7 +644,7 @@ export default function TreatmentDetailPage() {
               <div className="flex justify-between text-sm">
                 <span className="font-medium text-gray-500">Total Contratado</span>
                 <span className="font-bold text-gray-900">
-                  {formatCurrency(contractedTotal)}
+                  {renderAmount(contractedTotal)}
                 </span>
               </div>
 
@@ -643,7 +652,7 @@ export default function TreatmentDetailPage() {
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-gray-500">Entrada</span>
                   <span className="font-bold text-gray-900">
-                    {formatCurrency(entryAmount)}
+                    {renderAmount(entryAmount)}
                   </span>
                 </div>
               )}
@@ -658,7 +667,7 @@ export default function TreatmentDetailPage() {
                   </span>
                 </div>
                 <span className="text-xl font-bold text-blue-600">
-                  {formatCurrency(amountToFinance)}
+                  {renderAmount(amountToFinance)}
                 </span>
               </div>
             </div>
@@ -669,7 +678,7 @@ export default function TreatmentDetailPage() {
             <div className="px-6 py-4 border-b bg-gray-50/50 flex items-center justify-between print:bg-transparent print:px-0">
               <h3 className="font-bold text-gray-900">Plano de Pagamento</h3>
 
-              {amountToFinance > 0 && (
+              {amountToFinance > 0 && canViewOperationalFinancials && (
                 <button
                   onClick={() => {
                     setGenerateError(null);
@@ -722,7 +731,7 @@ export default function TreatmentDetailPage() {
                     <div className="flex items-center justify-between md:justify-end gap-6">
                       <div className="text-left md:text-right">
                         <p className="text-sm font-bold text-gray-900">
-                          {formatCurrency(inst.amount)}
+                          {renderAmount(inst.amount)}
                         </p>
                         <p
                           className={cn(
@@ -853,7 +862,7 @@ export default function TreatmentDetailPage() {
                   Saldo a Parcelar
                 </label>
                 <div className="w-full px-4 py-2 bg-gray-50 border rounded-lg font-bold text-gray-900">
-                  {formatCurrency(amountToFinance)}
+                  {renderAmount(amountToFinance)}
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1">
                   O plano é gerado sobre o saldo restante após desconto e entrada.
@@ -941,7 +950,7 @@ export default function TreatmentDetailPage() {
                   <p>
                     Valor base das parcelas:{' '}
                     <strong>
-                      {formatCurrency(installmentPreview?.baseInstallmentAmount || 0)}
+                      {renderAmount(installmentPreview?.baseInstallmentAmount || 0)}
                     </strong>
                   </p>
 
@@ -949,7 +958,7 @@ export default function TreatmentDetailPage() {
                     <p>
                       Última parcela prevista:{' '}
                       <strong>
-                        {formatCurrency(
+                        {renderAmount(
                           installmentPreview.installments[
                             installmentPreview.installments.length - 1
                           ].amount
@@ -1090,7 +1099,7 @@ export default function TreatmentDetailPage() {
                 <div className="p-3 bg-gray-50 rounded-lg border">
                   <p className="text-[10px] text-gray-400 uppercase font-bold">Valor Total</p>
                   <p className="text-sm font-bold text-gray-700">
-                    {formatCurrency(treatment.total_amount)}
+                    {renderAmount(treatment.total_amount)}
                   </p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg border">

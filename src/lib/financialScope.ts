@@ -8,12 +8,43 @@ export interface FinancialScopeMap {
   can_view_open_amount_total: boolean;
 }
 
-const defaultFinancialScope: FinancialScopeMap = {
+export const defaultFinancialScope: FinancialScopeMap = {
   financial_access_level: 'none',
   months_back_visible: 0,
   months_forward_visible: 0,
   can_view_monthly_forecast: false,
   can_view_open_amount_total: false,
+};
+
+const systemRoleFallbackScopes: Record<string, FinancialScopeMap> = {
+  gestor: {
+    financial_access_level: 'executive',
+    months_back_visible: 24,
+    months_forward_visible: 12,
+    can_view_monthly_forecast: true,
+    can_view_open_amount_total: true,
+  },
+  financeiro: {
+    financial_access_level: 'financial',
+    months_back_visible: 12,
+    months_forward_visible: 6,
+    can_view_monthly_forecast: true,
+    can_view_open_amount_total: true,
+  },
+  secretaria: {
+    financial_access_level: 'operational',
+    months_back_visible: 2,
+    months_forward_visible: 2,
+    can_view_monthly_forecast: false,
+    can_view_open_amount_total: false,
+  },
+  dentista: {
+    financial_access_level: 'none',
+    months_back_visible: 0,
+    months_forward_visible: 0,
+    can_view_monthly_forecast: false,
+    can_view_open_amount_total: false,
+  },
 };
 
 function normalizeBoolean(value: unknown): boolean {
@@ -47,6 +78,10 @@ function normalizeFinancialAccessLevel(value: unknown): FinancialAccessLevel {
   return 'none';
 }
 
+function hasExplicitFinancialScope(input: unknown): boolean {
+  return !!input && typeof input === 'object' && !Array.isArray(input) && Object.keys(input as Record<string, unknown>).length > 0;
+}
+
 export function normalizeFinancialScope(input: unknown): FinancialScopeMap {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return defaultFinancialScope;
@@ -61,4 +96,17 @@ export function normalizeFinancialScope(input: unknown): FinancialScopeMap {
     can_view_monthly_forecast: normalizeBoolean(raw.can_view_monthly_forecast),
     can_view_open_amount_total: normalizeBoolean(raw.can_view_open_amount_total),
   };
+}
+
+export function getFallbackFinancialScopeByRoleSlug(roleSlug?: string | null): FinancialScopeMap {
+  if (!roleSlug) return defaultFinancialScope;
+  return systemRoleFallbackScopes[roleSlug] || defaultFinancialScope;
+}
+
+export function resolveFinancialScope(input: unknown, roleSlug?: string | null): FinancialScopeMap {
+  if (hasExplicitFinancialScope(input)) {
+    return normalizeFinancialScope(input);
+  }
+
+  return getFallbackFinancialScopeByRoleSlug(roleSlug);
 }

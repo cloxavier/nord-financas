@@ -18,6 +18,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { canViewFinancialSummary, canViewOpenAmountTotal, canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import { cn, formatCurrency, formatDate } from '../lib/utils';
 import {
   BillingQueueFilter,
@@ -38,6 +40,15 @@ const emptySummary: CollectionOperationalSummary = {
 };
 
 export default function BillingPage() {
+  const { financialScope } = useAuth();
+  const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
+  const canViewSummaryFinancials = canViewFinancialSummary(financialScope) || canViewOpenAmountTotal(financialScope);
+
+  const renderOperationalAmount = (value: number) =>
+    canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
+
+  const renderSummaryAmount = (value: number) =>
+    canViewSummaryFinancials ? formatCurrency(value) : 'Acesso restrito';
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<BillingQueueRow[]>([]);
   const [summary, setSummary] = useState<CollectionOperationalSummary>(emptySummary);
@@ -109,12 +120,14 @@ export default function BillingPage() {
   });
 
   const getWhatsAppLink = (phone: string, name: string, amount: number, dueDate: string) => {
-    const message = `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que sua parcela de ${formatCurrency(amount)} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
+    const amountText = canViewOperationalFinancials ? formatCurrency(amount) : 'sua parcela';
+    const message = `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que ${amountText} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
     return `https://wa.me/${(phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
   };
 
   const copyBillingMessage = (name: string, amount: number, dueDate: string) => {
-    const message = `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que sua parcela de ${formatCurrency(amount)} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
+    const amountText = canViewOperationalFinancials ? formatCurrency(amount) : 'sua parcela';
+    const message = `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que ${amountText} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
     navigator.clipboard.writeText(message);
     alert('Mensagem copiada para a área de transferência!');
   };
@@ -266,7 +279,7 @@ export default function BillingPage() {
 
                           <td className="px-6 py-4">
                             <p className="text-sm font-bold text-gray-900">
-                              {formatCurrency(row.amount)}
+                              {renderOperationalAmount(row.amount)}
                             </p>
                             <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">
                               {isOperationalTask
@@ -429,7 +442,7 @@ export default function BillingPage() {
                             Valor
                           </p>
                           <p className="text-sm font-bold text-gray-900">
-                            {formatCurrency(row.amount)}
+                            {renderOperationalAmount(row.amount)}
                           </p>
                         </div>
                       </div>
@@ -512,7 +525,7 @@ export default function BillingPage() {
                   Total Inadimplente
                 </p>
                 <p className="text-2xl font-bold text-red-700">
-                  {formatCurrency(summary.totalOverdueAmount)}
+                  {renderSummaryAmount(summary.totalOverdueAmount)}
                 </p>
               </div>
 

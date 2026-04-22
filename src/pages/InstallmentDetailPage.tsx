@@ -36,6 +36,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { logActivity } from '../lib/activities';
 import { useAuth } from '../contexts/AuthContext';
+import { canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import {
   getInstallmentEffectiveStatus,
   isInstallmentOverdue,
@@ -57,9 +58,11 @@ function buildReferenceDate(dateString?: string | null) {
 export default function InstallmentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
+  const { hasPermission, financialScope } = useAuth();
 
   const canRegisterPayment = hasPermission('payments_register');
+  const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
+  const renderAmount = (value: number) => canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -368,7 +371,7 @@ export default function InstallmentDetailPage() {
                     {isPaid ? 'Valor Real Recebido' : 'Valor Principal da Parcela'}
                   </p>
                   <p className="text-3xl font-bold text-gray-900">
-                    {formatCurrency(
+                    {renderAmount(
                       isPaid
                         ? paidInstallmentBreakdown?.actualPaidAmount || installment.amount_paid || installment.amount
                         : installment.amount
@@ -475,7 +478,7 @@ export default function InstallmentDetailPage() {
                     Principal em Aberto
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {formatCurrency(openInstallmentBreakdown.principalOpenAmount)}
+                    {renderAmount(openInstallmentBreakdown.principalOpenAmount)}
                   </p>
                 </div>
 
@@ -493,7 +496,7 @@ export default function InstallmentDetailPage() {
                     Multa
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {formatCurrency(openInstallmentBreakdown.lateFeeAmount)}
+                    {renderAmount(openInstallmentBreakdown.lateFeeAmount)}
                   </p>
                 </div>
 
@@ -502,7 +505,7 @@ export default function InstallmentDetailPage() {
                     Juros
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {formatCurrency(openInstallmentBreakdown.interestAmount)}
+                    {renderAmount(openInstallmentBreakdown.interestAmount)}
                   </p>
                 </div>
               </div>
@@ -512,7 +515,7 @@ export default function InstallmentDetailPage() {
                   Total Atualizado Hoje
                 </p>
                 <p className="text-2xl font-black text-amber-900">
-                  {formatCurrency(openInstallmentBreakdown.totalUpdatedAmount)}
+                  {renderAmount(openInstallmentBreakdown.totalUpdatedAmount)}
                 </p>
                 <p className="text-xs text-amber-800 mt-2 leading-relaxed whitespace-pre-wrap">
                   {lateRuleNotes}
@@ -534,7 +537,7 @@ export default function InstallmentDetailPage() {
                     Valor Principal
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {formatCurrency(paidInstallmentBreakdown.principalAmount)}
+                    {renderAmount(paidInstallmentBreakdown.principalAmount)}
                   </p>
                 </div>
 
@@ -543,7 +546,7 @@ export default function InstallmentDetailPage() {
                     Valor Real Recebido
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {formatCurrency(paidInstallmentBreakdown.actualPaidAmount)}
+                    {renderAmount(paidInstallmentBreakdown.actualPaidAmount)}
                   </p>
                 </div>
 
@@ -561,7 +564,7 @@ export default function InstallmentDetailPage() {
                     Encargos Recebidos
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {formatCurrency(paidInstallmentBreakdown.totalChargesPaid)}
+                    {renderAmount(paidInstallmentBreakdown.totalChargesPaid)}
                   </p>
                 </div>
 
@@ -570,7 +573,7 @@ export default function InstallmentDetailPage() {
                     Multa Aplicada
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {formatCurrency(paidInstallmentBreakdown.lateFeeAmount)}
+                    {renderAmount(paidInstallmentBreakdown.lateFeeAmount)}
                   </p>
                   <p className="text-[11px] text-gray-500 mt-1">
                     Percentual: {String(paidInstallmentBreakdown.lateFeePercent).replace('.', ',')}%
@@ -582,7 +585,7 @@ export default function InstallmentDetailPage() {
                     Juros Aplicados
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {formatCurrency(paidInstallmentBreakdown.interestAmount)}
+                    {renderAmount(paidInstallmentBreakdown.interestAmount)}
                   </p>
                   <p className="text-[11px] text-gray-500 mt-1">
                     Percentual: {String(paidInstallmentBreakdown.interestPercent).replace('.', ',')}%
@@ -603,7 +606,23 @@ export default function InstallmentDetailPage() {
             </div>
           )}
 
-          {!isPaid && !canRegisterPayment && (
+          {!isPaid && !canViewOperationalFinancials && (
+            <div className="bg-white rounded-xl border shadow-sm p-6">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                  <Lock size={18} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900">Valores financeiros restritos</h3>
+                  <p className="text-sm text-gray-600 mt-1 leading-6">
+                    Seu cargo pode acessar a parcela, mas não possui escopo financeiro para visualizar valores e encargos.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!isPaid && canViewOperationalFinancials && !canRegisterPayment && (
             <div className="bg-white rounded-xl border shadow-sm p-6">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
@@ -619,7 +638,7 @@ export default function InstallmentDetailPage() {
             </div>
           )}
 
-          {!isPaid && canRegisterPayment && (
+          {!isPaid && canRegisterPayment && canViewOperationalFinancials && (
             <form
               onSubmit={handlePayment}
               className="bg-white rounded-xl border shadow-sm overflow-hidden"
@@ -655,7 +674,7 @@ export default function InstallmentDetailPage() {
                   <p className="text-xs text-gray-500 mt-1.5">
                     Valor sugerido para quitação hoje:{' '}
                     <strong>
-                      {formatCurrency(openInstallmentBreakdown?.totalUpdatedAmount || installment.amount)}
+                      {renderAmount(openInstallmentBreakdown?.totalUpdatedAmount || installment.amount)}
                     </strong>
                   </p>
                 </div>

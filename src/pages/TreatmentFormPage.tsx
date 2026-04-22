@@ -28,6 +28,8 @@ import {
   PlusCircle,
 } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
+import { canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import { logActivity } from '../lib/activities';
 import { syncExistingPaymentPlanAfterTreatmentChange } from '../domain/paymentPlans/services/paymentPlanGenerationService';
 import { getFinancialPixSettings } from '../lib/appSettings';
@@ -64,6 +66,9 @@ function normalizeMoneyInput(value: unknown) {
 }
 
 export default function TreatmentFormPage() {
+  const { financialScope } = useAuth();
+  const canManageTreatmentFinancials = canViewOperationalFinancialData(financialScope);
+  const renderAmount = (value: number) => canManageTreatmentFinancials ? formatCurrency(value) : 'Acesso restrito';
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -471,7 +476,7 @@ export default function TreatmentFormPage() {
 
         await logActivity(
           'treatment_created',
-          `Tratamento para ${patientName} criado no valor de ${formatCurrency(contractedTotal)}`,
+          `Tratamento para ${patientName} criado no valor de ${renderAmount(contractedTotal)}`,
           { entity_id: treatmentId }
         );
       }
@@ -756,7 +761,7 @@ export default function TreatmentFormPage() {
                     <option value="">Buscar no catálogo...</option>
                     {procedures.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} - {formatCurrency(p.default_price)}
+                        {p.name} - {renderAmount(p.default_price)}
                       </option>
                     ))}
                   </select>
@@ -765,7 +770,8 @@ export default function TreatmentFormPage() {
                 <button
                   type="button"
                   onClick={() => addItem()}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-bold hover:bg-blue-100 transition-colors"
+                  disabled={!canManageTreatmentFinancials}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-bold hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <PlusCircle size={14} />
                   <span>Manual</span>
@@ -825,7 +831,8 @@ export default function TreatmentFormPage() {
                                     unit_price_snapshot: parseFloat(e.target.value) || 0,
                                   })
                                 }
-                                className="w-full pl-7 pr-3 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
+                                disabled={!canManageTreatmentFinancials}
+                                className="w-full pl-7 pr-3 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium disabled:bg-gray-100 disabled:text-gray-500"
                               />
                             </div>
                           </div>
@@ -867,7 +874,7 @@ export default function TreatmentFormPage() {
                               Total
                             </label>
                             <p className="py-1.5 text-sm font-bold text-gray-900">
-                              {formatCurrency(item.line_total)}
+                              {renderAmount(item.line_total)}
                             </p>
                           </div>
                         </div>
@@ -876,7 +883,7 @@ export default function TreatmentFormPage() {
                       <div className="flex sm:flex-col items-center justify-between sm:justify-center gap-2">
                         <div className="sm:hidden">
                           <p className="text-sm font-bold text-blue-600">
-                            {formatCurrency(item.line_total)}
+                            {renderAmount(item.line_total)}
                           </p>
                         </div>
                         <button
@@ -930,10 +937,16 @@ export default function TreatmentFormPage() {
               Resumo Financeiro
             </h3>
 
+            {!canManageTreatmentFinancials && (
+              <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Este cargo não possui escopo financeiro para visualizar ou editar valores do tratamento. Você ainda pode montar a parte clínica, mas ajustes de preço exigem um cargo com acesso financeiro operacional ou superior.
+              </div>
+            )}
+
             <div className="space-y-4">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Subtotal</span>
-                <span className="font-medium text-gray-900">{formatCurrency(subtotal)}</span>
+                <span className="font-medium text-gray-900">{renderAmount(subtotal)}</span>
               </div>
 
               <div className="flex flex-col gap-1">
@@ -948,14 +961,15 @@ export default function TreatmentFormPage() {
                       discount_amount: parseFloat(e.target.value) || 0,
                     })
                   }
-                  className="w-full px-3 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold"
+                  disabled={!canManageTreatmentFinancials}
+                  className="w-full px-3 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold disabled:bg-gray-100 disabled:text-gray-500"
                 />
               </div>
 
               <div className="flex justify-between text-sm">
                 <span className="font-medium text-gray-500">Total Contratado</span>
                 <span className="font-bold text-gray-900">
-                  {formatCurrency(contractedTotal)}
+                  {renderAmount(contractedTotal)}
                 </span>
               </div>
 
@@ -972,7 +986,8 @@ export default function TreatmentFormPage() {
                       entry_amount: parseFloat(e.target.value) || 0,
                     })
                   }
-                  className="w-full px-3 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold"
+                  disabled={!canManageTreatmentFinancials}
+                  className="w-full px-3 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold disabled:bg-gray-100 disabled:text-gray-500"
                 />
                 <p className="text-[11px] text-gray-400">
                   Nesta fase, a entrada é contratual e reduz o saldo do parcelamento.
@@ -987,7 +1002,7 @@ export default function TreatmentFormPage() {
                   </span>
                 </div>
                 <span className="text-2xl font-bold text-blue-600">
-                  {formatCurrency(amountToFinance)}
+                  {renderAmount(amountToFinance)}
                 </span>
               </div>
             </div>
@@ -1020,7 +1035,8 @@ export default function TreatmentFormPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, payment_method_preference: e.target.value })
                   }
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                  disabled={!canManageTreatmentFinancials}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:bg-gray-100 disabled:text-gray-500"
                   placeholder="Ex: Cartão 10x, PIX..."
                 />
               </div>
@@ -1041,6 +1057,7 @@ export default function TreatmentFormPage() {
                   <input
                     type="checkbox"
                     checked={formData.use_clinic_default_late_rules}
+                    disabled={!canManageTreatmentFinancials}
                     onChange={(e) => {
                       if (e.target.checked) {
                         applyClinicLateDefaults();
@@ -1060,7 +1077,8 @@ export default function TreatmentFormPage() {
               <button
                 type="button"
                 onClick={applyClinicLateDefaults}
-                className="w-full py-2 border rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                disabled={!canManageTreatmentFinancials}
+                className="w-full py-2 border rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Reaplicar padrão da clínica
               </button>
@@ -1070,7 +1088,7 @@ export default function TreatmentFormPage() {
                   <input
                     type="checkbox"
                     checked={formData.late_fee_enabled}
-                    disabled={formData.use_clinic_default_late_rules}
+                    disabled={!canManageTreatmentFinancials || formData.use_clinic_default_late_rules}
                     onChange={(e) =>
                       setFormData({ ...formData, late_fee_enabled: e.target.checked })
                     }
@@ -1084,7 +1102,7 @@ export default function TreatmentFormPage() {
                   step="0.001"
                   min="0"
                   value={formData.late_fee_percent ?? ''}
-                  disabled={formData.use_clinic_default_late_rules || !formData.late_fee_enabled}
+                  disabled={!canManageTreatmentFinancials || formData.use_clinic_default_late_rules || !formData.late_fee_enabled}
                   onChange={(e) =>
                     setFormData({
                       ...formData,
@@ -1099,7 +1117,7 @@ export default function TreatmentFormPage() {
                   <input
                     type="checkbox"
                     checked={formData.interest_enabled}
-                    disabled={formData.use_clinic_default_late_rules}
+                    disabled={!canManageTreatmentFinancials || formData.use_clinic_default_late_rules}
                     onChange={(e) =>
                       setFormData({ ...formData, interest_enabled: e.target.checked })
                     }
@@ -1115,7 +1133,7 @@ export default function TreatmentFormPage() {
                     min="0"
                     value={formData.interest_percent ?? ''}
                     disabled={
-                      formData.use_clinic_default_late_rules || !formData.interest_enabled
+                      !canManageTreatmentFinancials || formData.use_clinic_default_late_rules || !formData.interest_enabled
                     }
                     onChange={(e) =>
                       setFormData({
@@ -1130,7 +1148,7 @@ export default function TreatmentFormPage() {
                   <select
                     value={formData.interest_period}
                     disabled={
-                      formData.use_clinic_default_late_rules || !formData.interest_enabled
+                      !canManageTreatmentFinancials || formData.use_clinic_default_late_rules || !formData.interest_enabled
                     }
                     onChange={(e) =>
                       setFormData({
@@ -1148,7 +1166,7 @@ export default function TreatmentFormPage() {
                 <textarea
                   rows={3}
                   value={formData.late_fee_notes ?? ''}
-                  disabled={formData.use_clinic_default_late_rules}
+                  disabled={!canManageTreatmentFinancials || formData.use_clinic_default_late_rules}
                   onChange={(e) =>
                     setFormData({ ...formData, late_fee_notes: e.target.value })
                   }

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import { Printer, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -7,6 +9,9 @@ import { resolveLateRuleNotes } from '../lib/lateChargeRules';
 
 export default function TreatmentPrintPage() {
   const { id } = useParams();
+  const { financialScope } = useAuth();
+  const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
+  const renderAmount = (value: number) => canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [treatment, setTreatment] = useState<any>(null);
@@ -192,10 +197,10 @@ export default function TreatmentPrintPage() {
                   </td>
                   <td className="py-4 text-sm text-gray-600 text-center">{item.quantity}</td>
                   <td className="py-4 text-sm text-gray-600 text-right">
-                    {formatCurrency(item.unit_price_snapshot)}
+                    {renderAmount(item.unit_price_snapshot)}
                   </td>
                   <td className="py-4 text-sm font-bold text-gray-900 text-right">
-                    {formatCurrency(item.line_total)}
+                    {renderAmount(item.line_total)}
                   </td>
                 </tr>
               ))}
@@ -207,7 +212,7 @@ export default function TreatmentPrintPage() {
                   Subtotal
                 </td>
                 <td className="py-3 text-sm font-bold text-gray-900 text-right">
-                  {formatCurrency(treatment.subtotal)}
+                  {renderAmount(treatment.subtotal)}
                 </td>
               </tr>
 
@@ -217,7 +222,7 @@ export default function TreatmentPrintPage() {
                     Desconto
                   </td>
                   <td className="py-3 text-sm font-bold text-red-500 text-right">
-                    -{formatCurrency(treatment.discount_amount)}
+                    -{renderAmount(treatment.discount_amount)}
                   </td>
                 </tr>
               )}
@@ -227,7 +232,7 @@ export default function TreatmentPrintPage() {
                   Total Contratado
                 </td>
                 <td className="py-3 text-sm font-bold text-gray-900 text-right">
-                  {formatCurrency(contractedTotal)}
+                  {renderAmount(contractedTotal)}
                 </td>
               </tr>
 
@@ -237,7 +242,7 @@ export default function TreatmentPrintPage() {
                     Entrada
                   </td>
                   <td className="py-3 text-sm font-bold text-gray-900 text-right">
-                    {formatCurrency(entryAmount)}
+                    {renderAmount(entryAmount)}
                   </td>
                 </tr>
               )}
@@ -247,7 +252,7 @@ export default function TreatmentPrintPage() {
                   Saldo a Parcelar
                 </td>
                 <td className="py-4 text-2xl font-black text-blue-600 text-right">
-                  {formatCurrency(amountToFinance)}
+                  {renderAmount(amountToFinance)}
                 </td>
               </tr>
             </tfoot>
@@ -310,7 +315,7 @@ export default function TreatmentPrintPage() {
                   </div>
 
                   <div className="text-right">
-                    <p className="text-sm font-black text-gray-900">{formatCurrency(inst.amount)}</p>
+                    <p className="text-sm font-black text-gray-900">{renderAmount(inst.amount)}</p>
                     <p className="text-[10px] font-bold text-gray-400 uppercase">{inst.status}</p>
                   </div>
                 </div>

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/src/contexts/AuthContext';
+import { canViewOperationalFinancialData, canViewFinancialSummary } from '@/src/domain/access/policies/financialScopePolicies';
 import {
   canSeeCollections as resolveCanSeeCollections,
   canSeeExecutiveDashboard as resolveCanSeeExecutiveDashboard,
@@ -60,11 +61,13 @@ interface ReminderAction {
 }
 
 export default function DashboardPage() {
-  const { permissions, hasPermission } = useAuth();
+  const { permissions, hasPermission, financialScope } = useAuth();
 
   const canSeeExecutiveDashboard = resolveCanSeeExecutiveDashboard(permissions);
   const canSeeCollections = resolveCanSeeCollections(permissions);
   const canSeeActivities = hasPermission('activities_view');
+  const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
+  const canViewSummaryFinancials = canViewFinancialSummary(financialScope);
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
@@ -108,7 +111,7 @@ export default function DashboardPage() {
               value = snapshot.metrics.activeTreatmentsCount;
               break;
             case 'revenue.month':
-              value = formatCurrency(snapshot.metrics.monthlyRevenue);
+              value = canViewSummaryFinancials ? formatCurrency(snapshot.metrics.monthlyRevenue) : 'Acesso restrito';
               break;
             case 'collections.overdue':
               value = snapshot.metrics.overdueCount;
@@ -392,7 +395,7 @@ export default function DashboardPage() {
                         <div className="text-right shrink-0">
                           {activity.amount > 0 && (
                             <p className="text-sm font-bold text-gray-900">
-                              {formatCurrency(activity.amount)}
+                              {canViewOperationalFinancials ? formatCurrency(activity.amount) : 'Acesso restrito'}
                             </p>
                           )}
                           <p className="text-xs text-gray-400 mt-0.5">{activity.date}</p>

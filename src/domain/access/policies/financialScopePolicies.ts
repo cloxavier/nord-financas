@@ -1,4 +1,12 @@
 import { FinancialScopeMap } from '@/src/lib/financialScope';
+import { FinancialAccessLevel } from '@/src/domain/access/catalog/financialScopeCatalog';
+
+const financialAccessRank: Record<FinancialAccessLevel, number> = {
+  none: 0,
+  operational: 1,
+  financial: 2,
+  executive: 3,
+};
 
 export function canViewMonthlyForecast(
   financialScope: FinancialScopeMap | null | undefined
@@ -26,8 +34,15 @@ export function getMonthsForwardVisible(
 
 export function getFinancialAccessLevel(
   financialScope: FinancialScopeMap | null | undefined
-) {
+): FinancialAccessLevel {
   return financialScope?.financial_access_level ?? 'none';
+}
+
+export function hasFinancialAccessAtLeast(
+  financialScope: FinancialScopeMap | null | undefined,
+  minimumLevel: FinancialAccessLevel
+): boolean {
+  return financialAccessRank[getFinancialAccessLevel(financialScope)] >= financialAccessRank[minimumLevel];
 }
 
 export function isOperationalFinancialScope(
@@ -46,4 +61,22 @@ export function isExecutiveFinancialScope(
   financialScope: FinancialScopeMap | null | undefined
 ): boolean {
   return getFinancialAccessLevel(financialScope) === 'executive';
+}
+
+export function canViewOperationalFinancialData(
+  financialScope: FinancialScopeMap | null | undefined
+): boolean {
+  return hasFinancialAccessAtLeast(financialScope, 'operational');
+}
+
+export function canViewFinancialSummary(
+  financialScope: FinancialScopeMap | null | undefined
+): boolean {
+  return hasFinancialAccessAtLeast(financialScope, 'financial');
+}
+
+export function canViewFinancialReports(
+  financialScope: FinancialScopeMap | null | undefined
+): boolean {
+  return hasFinancialAccessAtLeast(financialScope, 'financial');
 }

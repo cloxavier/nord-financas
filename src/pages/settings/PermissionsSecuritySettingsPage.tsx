@@ -38,13 +38,16 @@ import {
 import { useAuth } from '@/src/contexts/AuthContext';
 import { AccessRole } from '@/src/types/database';
 import { formatDateTime } from '@/src/lib/utils';
+import { FinancialScopeMap, normalizeFinancialScope, defaultFinancialScope } from '@/src/lib/financialScope';
 import {
   getPermissionCatalog,
   PermissionDomain,
   PermissionKey,
 } from '@/src/domain/access/catalog/permissionCatalog';
+import { getFinancialScopeCatalog } from '@/src/domain/access/catalog/financialScopeCatalog';
 
 const permissionCatalog = getPermissionCatalog();
+const financialScopeCatalog = getFinancialScopeCatalog();
 
 const DOMAIN_LABELS: Record<PermissionDomain, string> = {
   dashboard: 'Dashboard',
@@ -67,7 +70,7 @@ interface RoleEditorFormState {
   description: string;
   isActive: boolean;
   permissions: RolePermissionMap;
-  financialScopeJson: Record<string, boolean>;
+  financialScopeJson: FinancialScopeMap;
 }
 
 function buildEmptyPermissionMap(): RolePermissionMap {
@@ -94,7 +97,7 @@ function createEmptyRoleEditorState(): RoleEditorFormState {
     description: '',
     isActive: true,
     permissions: buildEmptyPermissionMap(),
-    financialScopeJson: {},
+    financialScopeJson: { ...defaultFinancialScope },
   };
 }
 
@@ -105,7 +108,7 @@ function buildRoleEditorStateFromRole(role: AccessRole): RoleEditorFormState {
     description: role.description || '',
     isActive: role.is_active,
     permissions: normalizePermissionMap(role.permissions_json),
-    financialScopeJson: role.financial_scope_json || {},
+    financialScopeJson: normalizeFinancialScope(role.financial_scope_json),
   };
 }
 
@@ -237,6 +240,19 @@ export default function PermissionsSecuritySettingsPage() {
     setRoleForm((prev) => ({
       ...prev,
       [field]: value,
+    }));
+  }
+
+  function updateRoleFinancialScopeField<K extends keyof FinancialScopeMap>(
+    field: K,
+    value: FinancialScopeMap[K]
+  ) {
+    setRoleForm((prev) => ({
+      ...prev,
+      financialScopeJson: {
+        ...prev.financialScopeJson,
+        [field]: value,
+      },
     }));
   }
 
@@ -811,8 +827,86 @@ export default function PermissionsSecuritySettingsPage() {
                     />
                   </div>
 
-                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                    Nesta etapa, o editor salva permissões e estado do cargo. O escopo financeiro será refinado em uma fase posterior.
+                  <div className="mt-4 rounded-xl border p-4 bg-white">
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shrink-0">
+                        <Shield size={18} />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-gray-900">Escopo financeiro do cargo</h4>
+                        <p className="text-xs text-gray-500 mt-1 leading-5">
+                          Defina até onde este cargo pode ver valores, totais e previsões financeiras.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Nível de acesso financeiro</label>
+                        <select
+                          value={roleForm.financialScopeJson.financial_access_level}
+                          onChange={(e) => updateRoleFinancialScopeField('financial_access_level', e.target.value as FinancialScopeMap['financial_access_level'])}
+                          className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        >
+                          {financialScopeCatalog.map((scope) => (
+                            <option key={scope.key} value={scope.key}>
+                              {scope.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Meses para trás</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={roleForm.financialScopeJson.months_back_visible}
+                            onChange={(e) => updateRoleFinancialScopeField('months_back_visible', Math.max(0, Number(e.target.value) || 0))}
+                            className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Meses para frente</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={roleForm.financialScopeJson.months_forward_visible}
+                            onChange={(e) => updateRoleFinancialScopeField('months_forward_visible', Math.max(0, Number(e.target.value) || 0))}
+                            className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-gray-50 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={roleForm.financialScopeJson.can_view_open_amount_total}
+                          onChange={(e) => updateRoleFinancialScopeField('can_view_open_amount_total', e.target.checked)}
+                          className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">Pode ver totais em aberto</p>
+                          <p className="text-xs text-gray-500 mt-1">Libera cartões e totais agregados de inadimplência e recebíveis.</p>
+                        </div>
+                      </label>
+
+                      <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-gray-50 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={roleForm.financialScopeJson.can_view_monthly_forecast}
+                          onChange={(e) => updateRoleFinancialScopeField('can_view_monthly_forecast', e.target.checked)}
+                          className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">Pode ver previsão mensal</p>
+                          <p className="text-xs text-gray-500 mt-1">Prepara o cargo para análises futuras de horizonte financeiro.</p>
+                        </div>
+                      </label>
+                    </div>
                   </div>
                 </div>
 

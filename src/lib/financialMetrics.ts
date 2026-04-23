@@ -335,6 +335,9 @@ export interface DashboardExecutiveSummary {
   receivedCount: number;
   collectionRatePercent: number | null;
   previousMonthLabel: string;
+  previousReceivedTotal: number;
+  previousOverdueInPeriodTotal: number;
+  previousCollectionRatePercent: number | null;
   receivedDeltaPercent: number | null;
   overdueDeltaPercent: number | null;
   collectionRateDeltaPercent: number | null;
@@ -455,9 +458,14 @@ function getPreviousMonthDateRange(referenceDate = new Date()) {
 function calculateDeltaPercent(current: number | null, previous: number | null) {
   if (current === null || previous === null) return null;
 
+  /**
+   * Quando o mês anterior é zero, não existe base comparável confiável.
+   * Nessa situação, preferimos sinalizar ausência de base anterior
+   * em vez de exibir +100%, que pode soar como "inadimplência de 100%"
+   * ou como crescimento matemático absoluto, gerando interpretação ruim.
+   */
   if (previous === 0) {
-    if (current === 0) return 0;
-    return 100;
+    return null;
   }
 
   return roundMoney(((current - previous) / Math.abs(previous)) * 100);
@@ -830,6 +838,9 @@ export async function getDashboardExecutiveSummary(
     receivedCount: currentReport.summary.receivedCount,
     collectionRatePercent: currentReport.summary.collectionRatePercent,
     previousMonthLabel: previousRange.monthLabel,
+    previousReceivedTotal: previousReport.summary.receivedTotal,
+    previousOverdueInPeriodTotal: previousReport.summary.overdueInPeriodTotal,
+    previousCollectionRatePercent: previousReport.summary.collectionRatePercent,
     receivedDeltaPercent: calculateDeltaPercent(
       currentReport.summary.receivedTotal,
       previousReport.summary.receivedTotal

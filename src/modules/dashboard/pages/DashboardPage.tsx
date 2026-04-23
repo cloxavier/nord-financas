@@ -75,15 +75,16 @@ interface ReminderAction {
   dotColor: string;
 }
 
-function formatDeltaLabel(value: number | null, mode: 'currency' | 'percentage' = 'percentage') {
+function formatDeltaLabel(value: number | null) {
   if (value === null) return 'Sem base anterior';
 
   const prefix = value > 0 ? '+' : '';
-  if (mode === 'currency') {
-    return `${prefix}${value.toFixed(1).replace('.', ',')}%`;
-  }
-
   return `${prefix}${value.toFixed(1).replace('.', ',')}%`;
+}
+
+function formatPercentValue(value: number | null) {
+  if (value === null) return 'N/A';
+  return `${value.toFixed(1).replace('.', ',')}%`;
 }
 
 function getDeltaTone(value: number | null, inverse = false) {
@@ -93,6 +94,22 @@ function getDeltaTone(value: number | null, inverse = false) {
   const shouldBeGood = inverse ? !isPositive : isPositive;
 
   return shouldBeGood ? 'text-green-600' : 'text-red-600';
+}
+
+function getComparisonExplanation(value: number | null, previousValue: number | null) {
+  if (previousValue === null || previousValue === undefined) {
+    return 'Sem histórico anterior para comparação.';
+  }
+
+  if (previousValue === 0) {
+    if (!value || value === 0) {
+      return 'Mês atual e mês anterior sem movimentação relevante.';
+    }
+
+    return 'Mês anterior zerado; a comparação percentual não é confiável.';
+  }
+
+  return 'Comparação percentual calculada sobre o mês anterior.';
 }
 
 export default function DashboardPage() {
@@ -470,9 +487,7 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <p className="text-2xl font-bold text-gray-900">
-                  {executiveSummary.collectionRatePercent === null
-                    ? 'N/A'
-                    : `${executiveSummary.collectionRatePercent.toFixed(1).replace('.', ',')}%`}
+                  {formatPercentValue(executiveSummary.collectionRatePercent)}
                 </p>
                 <p className={cn('text-xs mt-2 font-semibold', getDeltaTone(executiveSummary.collectionRateDeltaPercent))}>
                   vs {executiveSummary.previousMonthLabel}: {formatDeltaLabel(executiveSummary.collectionRateDeltaPercent)}
@@ -511,45 +526,72 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div className="bg-white rounded-xl border shadow-sm p-5 xl:col-span-2">
-              <h3 className="font-bold text-gray-900">Comparativo do mês atual</h3>
+              <h3 className="font-bold text-gray-900">Comparativo de {executiveSummary.monthLabel} x {executiveSummary.previousMonthLabel}</h3>
               <p className="text-xs text-gray-500 mt-1">
-                Leitura resumida contra {executiveSummary.previousMonthLabel}.
+                Leitura resumida com valores atuais, valores do mês anterior e variação percentual quando existir base comparável.
               </p>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="rounded-lg border p-4">
                   <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2">
-                    Recebimento
+                    Recebido
                   </p>
-                  <p className={cn('text-sm font-bold', getDeltaTone(executiveSummary.receivedDeltaPercent))}>
-                    {formatDeltaLabel(executiveSummary.receivedDeltaPercent)}
+                  <p className="text-sm font-bold text-gray-900">
+                    {executiveSummary.monthLabel}: {formatCurrency(executiveSummary.receivedTotal)}
                   </p>
                   <p className="text-xs text-gray-500 mt-2">
-                    Mede a evolução do caixa recebido no mês.
+                    {executiveSummary.previousMonthLabel}: {formatCurrency(executiveSummary.previousReceivedTotal)}
+                  </p>
+                  <p className={cn('text-xs mt-3 font-semibold', getDeltaTone(executiveSummary.receivedDeltaPercent))}>
+                    Variação: {formatDeltaLabel(executiveSummary.receivedDeltaPercent)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    {getComparisonExplanation(
+                      executiveSummary.receivedDeltaPercent,
+                      executiveSummary.previousReceivedTotal
+                    )}
                   </p>
                 </div>
 
                 <div className="rounded-lg border p-4">
                   <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2">
-                    Inadimplência do mês
+                    Em atraso no mês
                   </p>
-                  <p className={cn('text-sm font-bold', getDeltaTone(executiveSummary.overdueDeltaPercent, true))}>
-                    {formatDeltaLabel(executiveSummary.overdueDeltaPercent)}
+                  <p className="text-sm font-bold text-gray-900">
+                    {executiveSummary.monthLabel}: {formatCurrency(executiveSummary.overdueInPeriodTotal)}
                   </p>
                   <p className="text-xs text-gray-500 mt-2">
-                    Queda é positiva; alta merece acompanhamento.
+                    {executiveSummary.previousMonthLabel}: {formatCurrency(executiveSummary.previousOverdueInPeriodTotal)}
+                  </p>
+                  <p className={cn('text-xs mt-3 font-semibold', getDeltaTone(executiveSummary.overdueDeltaPercent, true))}>
+                    Variação: {formatDeltaLabel(executiveSummary.overdueDeltaPercent)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Queda é positiva; alta merece acompanhamento. {getComparisonExplanation(
+                      executiveSummary.overdueDeltaPercent,
+                      executiveSummary.previousOverdueInPeriodTotal
+                    )}
                   </p>
                 </div>
 
                 <div className="rounded-lg border p-4">
                   <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2">
-                    Eficiência de recebimento
+                    Taxa de recebimento
                   </p>
-                  <p className={cn('text-sm font-bold', getDeltaTone(executiveSummary.collectionRateDeltaPercent))}>
-                    {formatDeltaLabel(executiveSummary.collectionRateDeltaPercent)}
+                  <p className="text-sm font-bold text-gray-900">
+                    {executiveSummary.monthLabel}: {formatPercentValue(executiveSummary.collectionRatePercent)}
                   </p>
                   <p className="text-xs text-gray-500 mt-2">
-                    Relação entre previsto e efetivamente recebido.
+                    {executiveSummary.previousMonthLabel}: {formatPercentValue(executiveSummary.previousCollectionRatePercent)}
+                  </p>
+                  <p className={cn('text-xs mt-3 font-semibold', getDeltaTone(executiveSummary.collectionRateDeltaPercent))}>
+                    Variação: {formatDeltaLabel(executiveSummary.collectionRateDeltaPercent)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Relação entre previsto e efetivamente recebido. {getComparisonExplanation(
+                      executiveSummary.collectionRateDeltaPercent,
+                      executiveSummary.previousCollectionRatePercent
+                    )}
                   </p>
                 </div>
               </div>

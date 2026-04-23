@@ -1,46 +1,116 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { useMemo, useState } from 'react';
-import {
-  X,
-  Menu,
-  ChevronRight,
-  LogOut
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
+import { X, Menu, ChevronRight, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 import { getAllNavigationItems } from '@/src/app/moduleRegistry';
 import { filterItemsByPermission } from '@/src/domain/access/policies/accessPolicies';
 
+const MOBILE_BREAKPOINT = 768;
+const LONG_PRESS_DURATION_MS = 450;
+
 export default function AppLayout() {
-  const { profile, roleName, permissions, hasPermission, signOut } = useAuth();
+  const { profile, roleName, permissions, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const visibleMenuItems = useMemo(() => {
-  const registeredItems = getAllNavigationItems();
+  const longPressTimeoutRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
 
-  return filterItemsByPermission(registeredItems, permissions);
-}, [permissions]);
+  const visibleMenuItems = useMemo(() => {
+    const registeredItems = getAllNavigationItems();
+    return filterItemsByPermission(registeredItems, permissions);
+  }, [permissions]);
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimeoutRef.current) {
+        window.clearTimeout(longPressTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
   };
 
+  const handleGoToDashboard = () => {
+    setIsMobileMenuOpen(false);
+    navigate('/dashboard');
+  };
+
+  const startLogoLongPress = () => {
+    if (typeof window === 'undefined' || window.innerWidth >= MOBILE_BREAKPOINT) {
+      return;
+    }
+
+    longPressTriggeredRef.current = false;
+
+    longPressTimeoutRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setIsMobileMenuOpen((prev) => !prev);
+    }, LONG_PRESS_DURATION_MS);
+  };
+
+  const cancelLogoLongPress = () => {
+    if (longPressTimeoutRef.current) {
+      window.clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+  };
+
+  const handleLogoIconClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (longPressTriggeredRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      longPressTriggeredRef.current = false;
+      return;
+    }
+
+    handleGoToDashboard();
+  };
+
+  const currentPageLabel =
+    visibleMenuItems.find((item) => location.pathname.startsWith(item.path))?.label || 'Início';
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       <header className="md:hidden bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-50 print:hidden">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onMouseDown={startLogoLongPress}
+            onMouseUp={cancelLogoLongPress}
+            onMouseLeave={cancelLogoLongPress}
+            onTouchStart={startLogoLongPress}
+            onTouchEnd={cancelLogoLongPress}
+            onTouchCancel={cancelLogoLongPress}
+            onClick={handleLogoIconClick}
+            className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 hover:opacity-90 transition-opacity"
+            aria-label="Ir para o dashboard. No mobile, pressione e segure para abrir o menu como atalho experimental"
+            title="Toque: dashboard • Pressione e segure: menu experimental"
+          >
             <span className="text-white font-bold text-xl">N</span>
-          </div>
-          <span className="font-bold text-gray-900">Nord Finanças</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleGoToDashboard}
+            className="font-bold text-gray-900 truncate text-left hover:opacity-90 transition-opacity"
+            aria-label="Ir para o dashboard"
+          >
+            Nord Finanças
+          </button>
         </div>
 
         <button
+          type="button"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="p-2 text-gray-600 hover:bg-gray-100 rounded-md"
+          aria-label={isMobileMenuOpen ? 'Fechar menu' : 'Abrir menu'}
         >
           {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
@@ -54,18 +124,34 @@ export default function AppLayout() {
       >
         <div className="h-full flex flex-col">
           <div className="flex items-center gap-3 px-6 py-8 border-b">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
+            <button
+              type="button"
+              onClick={handleGoToDashboard}
+              className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200 shrink-0 hover:opacity-90 transition-opacity"
+              aria-label="Ir para o dashboard"
+            >
               <span className="text-white font-bold text-2xl">N</span>
-            </div>
+            </button>
 
-            <div>
-              <h1 className="font-bold text-gray-900 text-lg leading-tight">Nord Finanças</h1>
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Gestão Odonto</p>
-            </div>
+            <button
+              type="button"
+              onClick={handleGoToDashboard}
+              className="text-left min-w-0 hover:opacity-90 transition-opacity"
+              aria-label="Ir para o dashboard"
+            >
+              <h1 className="font-bold text-gray-900 text-lg leading-tight truncate">
+                Nord Finanças
+              </h1>
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                Gestão Odonto
+              </p>
+            </button>
 
             <button
               onClick={() => setIsMobileMenuOpen(false)}
               className="md:hidden ml-auto p-2 text-gray-400 hover:text-gray-600"
+              type="button"
+              aria-label="Fechar menu"
             >
               <X size={20} />
             </button>
@@ -120,6 +206,7 @@ export default function AppLayout() {
             <button
               onClick={handleSignOut}
               className="w-full flex items-center gap-3 px-3 py-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium"
+              type="button"
             >
               <LogOut size={20} />
               <span>Sair</span>
@@ -130,12 +217,16 @@ export default function AppLayout() {
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden print:overflow-visible">
         <header className="hidden md:flex h-16 bg-white border-b items-center justify-between px-8 shrink-0 print:hidden">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <span>Nord Finanças</span>
+          <div className="flex items-center gap-2 text-sm text-gray-500 min-w-0">
+            <button
+              type="button"
+              onClick={handleGoToDashboard}
+              className="hover:text-gray-900 transition-colors truncate"
+            >
+              Nord Finanças
+            </button>
             <ChevronRight size={14} />
-            <span className="font-medium text-gray-900 capitalize">
-              {visibleMenuItems.find((item) => location.pathname.startsWith(item.path))?.label || 'Início'}
-            </span>
+            <span className="font-medium text-gray-900 capitalize truncate">{currentPageLabel}</span>
           </div>
 
           <div className="flex items-center gap-4">

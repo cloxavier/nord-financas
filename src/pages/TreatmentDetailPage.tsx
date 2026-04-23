@@ -34,6 +34,8 @@ import {
   formatDateOnlyForInput,
 } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
+import { getPermissionSecuritySettings, PermissionSecuritySettingsRecord } from '../lib/appSettings';
+import SensitiveActionDialog from '../components/SensitiveActionDialog';
 import { canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import { resolvePatientName } from '../lib/businessRules';
 import {
@@ -66,9 +68,10 @@ export default function TreatmentDetailPage() {
   // Erro ao gerar parcelas
   const [generateError, setGenerateError] = useState<string | null>(null);
   // Hook de autenticação para verificar permissões
-  const { profile, financialScope } = useAuth();
+  const { financialScope, hasPermission } = useAuth();
   const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
   const renderAmount = (value: number) => canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
+  const canManageSensitiveTreatmentDeletion = hasPermission('settings_manage');
   // Controle do modal de geração de parcelas
   const [showInstallmentModal, setShowInstallmentModal] = useState(false);
   // Controle do modal de cancelamento
@@ -90,6 +93,7 @@ export default function TreatmentDetailPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Sucesso ao excluir
   const [deleteSuccess, setDeleteSuccess] = useState(false);
+  const [permissionSettings, setPermissionSettings] = useState<PermissionSecuritySettingsRecord | null>(null);
 
   // Estado do formulário de geração de parcelas
   const [installmentForm, setInstallmentForm] = useState<PaymentPlanFormValues>({
@@ -102,6 +106,7 @@ export default function TreatmentDetailPage() {
   // Busca os dados ao carregar a página ou mudar o ID
   useEffect(() => {
     fetchData();
+    fetchPermissionSettings();
   }, [id]);
 
   /**
@@ -216,6 +221,15 @@ export default function TreatmentDetailPage() {
     }
   }
 
+  async function fetchPermissionSettings() {
+    try {
+      const settings = await getPermissionSecuritySettings();
+      setPermissionSettings(settings);
+    } catch (error) {
+      console.error('Error fetching permission security settings:', error);
+    }
+  }
+
   /**
    * Busca estatísticas de registros relacionados para o modal de exclusão.
    */
@@ -292,13 +306,13 @@ export default function TreatmentDetailPage() {
   const handlePermanentDelete = async () => {
     if (!id) return;
 
-    const expectedConfirmation = id.slice(0, 8).toUpperCase();
+    const expectedConfirmation = `EXCLUIR ${id.slice(0, 8).toUpperCase()}`;
     if (
-      deleteConfirmation.toUpperCase() !== 'EXCLUIR' &&
-      deleteConfirmation.toUpperCase() !== expectedConfirmation
+      (permissionSettings?.require_delete_treatment_confirmation ?? true) &&
+      deleteConfirmation.trim().toUpperCase() !== expectedConfirmation
     ) {
       setDeleteError(
-        `Confirmação incorreta. Digite EXCLUIR ou ${expectedConfirmation}.`
+        `Confirmação incorreta. Digite ${expectedConfirmation} para continuar.`
       );
       return;
     }
@@ -495,10 +509,13 @@ export default function TreatmentDetailPage() {
             <span>Cancelar</span>
           </button>
 
-          {(profile?.role === 'admin' || profile?.role === 'financeiro') && (
+          {canManageSensitiveTreatmentDeletion && (
             <button
               onClick={() => {
                 fetchDeletionStats();
+                setDeleteError(null);
+                setDeleteSuccess(false);
+                setDeleteConfirmation('');
                 setShowPermanentDeleteModal(true);
               }}
               className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 border border-red-200 text-red-600 font-semibold hover:bg-red-50 transition-colors text-sm"
@@ -1059,125 +1076,45 @@ export default function TreatmentDetailPage() {
       )}
 
       {/* Modal de Exclusão Permanente */}
-      {showPermanentDeleteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-            <div className="flex items-center gap-3 text-red-600 mb-4">
-              <ShieldAlert size={28} />
-              <h3 className="text-2xl font-black uppercase tracking-tight">
-                Exclusão Permanente
-              </h3>
-            </div>
-
-            <div className="space-y-6">
-              <div className="p-4 bg-red-50 border border-red-100 rounded-xl">
-                <p className="text-sm text-red-800 font-bold mb-2">
-                  ATENÇÃO: ESTA AÇÃO É IRREVERSÍVEL
-                </p>
-                <p className="text-xs text-red-700 leading-relaxed">
-                  Você está prestes a apagar completamente este tratamento e todos os seus
-                  registros financeiros. Será como se o tratamento nunca tivesse existido no
-                  banco de dados.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 bg-gray-50 rounded-lg border">
-                  <p className="text-[10px] text-gray-400 uppercase font-bold">
-                    ID do Tratamento
-                  </p>
-                  <p className="text-sm font-mono font-bold text-gray-700">
-                    {treatment.id.slice(0, 8)}
-                  </p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg border">
-                  <p className="text-[10px] text-gray-400 uppercase font-bold">Paciente</p>
-                  <p className="text-sm font-bold text-gray-700 truncate">
-                    {treatment.patient_name_snapshot}
-                  </p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg border">
-                  <p className="text-[10px] text-gray-400 uppercase font-bold">Valor Total</p>
-                  <p className="text-sm font-bold text-gray-700">
-                    {renderAmount(treatment.total_amount)}
-                  </p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg border">
-                  <p className="text-[10px] text-gray-400 uppercase font-bold">Itens</p>
-                  <p className="text-sm font-bold text-gray-700">
-                    {stats.items} procedimentos
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Registros que serão removidos:
-                </p>
-                <ul className="text-xs text-gray-600 space-y-1 list-disc pl-4">
-                  <li>{stats.plans} Plano de pagamento</li>
-                  <li>{stats.installments} Parcelas financeiras</li>
-                  <li>{stats.payments} Registros de recebimento/pagamento</li>
-                  <li>Histórico de comunicações e logs de atividade relacionados</li>
-                  <li>O próprio registro do tratamento</li>
-                </ul>
-              </div>
-
-              <div className="space-y-3">
-                <label className="block text-sm font-bold text-gray-700">
-                  Para confirmar, digite{' '}
-                  <span className="text-red-600 font-black">EXCLUIR</span> ou o ID{' '}
-                  <span className="text-red-600 font-black">
-                    {treatment.id.slice(0, 8).toUpperCase()}
-                  </span>
-                  :
-                </label>
-                <input
-                  type="text"
-                  value={deleteConfirmation}
-                  onChange={(e) => setDeleteConfirmation(e.target.value)}
-                  placeholder="Digite aqui para confirmar"
-                  className="w-full px-4 py-3 border-2 border-red-100 rounded-xl focus:border-red-500 outline-none font-bold transition-colors"
-                />
-              </div>
-
-              {deleteError && (
-                <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg font-medium flex items-center gap-2">
-                  <AlertCircle size={16} />
-                  {deleteError}
-                </div>
-              )}
-
-              {deleteSuccess && (
-                <div className="p-3 bg-green-50 text-green-600 text-sm rounded-lg font-medium flex items-center gap-2">
-                  <CheckCircle size={16} />
-                  Exclusão realizada com sucesso! Redirecionando...
-                </div>
-              )}
-            </div>
-
-            <div className="mt-8 flex gap-3">
-              <button
-                onClick={() => {
-                  setShowPermanentDeleteModal(false);
-                  setDeleteError(null);
-                  setDeleteConfirmation('');
-                }}
-                className="flex-1 py-3 border rounded-xl font-bold text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handlePermanentDelete}
-                disabled={deleting || !deleteConfirmation}
-                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-100 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {deleting ? <Loader2 className="animate-spin h-5 w-5" /> : 'Apagar Tudo'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SensitiveActionDialog
+        open={showPermanentDeleteModal}
+        title="Exclusão permanente"
+        description="Você está prestes a apagar completamente este tratamento e todos os registros financeiros relacionados. Esta operação é irreversível e deve ser usada apenas em situações administrativas excepcionais."
+        guidanceText={permissionSettings?.show_sensitive_action_warning ? permissionSettings.sensitive_action_guidance_text : undefined}
+        implications={[
+          `Tratamento: #${treatment?.id?.slice(0, 8) || '-'}`,
+          `Paciente: ${treatment?.patient_name_snapshot || 'Sem nome'}`,
+          `${stats.items} procedimento(s) vinculados serão removidos.`,
+          `${stats.plans} plano(s) de pagamento serão removidos.`,
+          `${stats.installments} parcela(s) serão removidas.`,
+          `${stats.payments} registro(s) de recebimento/pagamento serão removidos.`,
+          'Logs e comunicações relacionados ao tratamento também serão removidos.',
+        ]}
+        tone="danger"
+        typedLabel={
+          permissionSettings?.require_delete_treatment_confirmation
+            ? `EXCLUIR ${treatment?.id?.slice(0, 8)?.toUpperCase() || ''}`
+            : undefined
+        }
+        typedValue={deleteConfirmation}
+        onTypedValueChange={setDeleteConfirmation}
+        confirmLabel="Apagar tudo"
+        onClose={() => {
+          setShowPermanentDeleteModal(false);
+          setDeleteError(null);
+          setDeleteConfirmation('');
+          setDeleteSuccess(false);
+        }}
+        onConfirm={handlePermanentDelete}
+        busy={deleting}
+        confirmDisabled={
+          deleting ||
+          ((permissionSettings?.require_delete_treatment_confirmation ?? true) &&
+            deleteConfirmation.trim().toUpperCase() !== `EXCLUIR ${treatment?.id?.slice(0, 8)?.toUpperCase() || ''}`)
+        }
+        error={deleteError}
+        successMessage={deleteSuccess ? 'Exclusão realizada com sucesso! Redirecionando...' : null}
+      />
     </div>
   );
 }

@@ -24,6 +24,8 @@ import {
   Mail,
   Phone,
   Lock,
+  Edit,
+  Trash2,
 } from 'lucide-react';
 import {
   formatCurrency,
@@ -35,6 +37,8 @@ import {
 } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { logActivity } from '../lib/activities';
+import { getPermissionSecuritySettings, PermissionSecuritySettingsRecord } from '../lib/appSettings';
+import SensitiveActionDialog from '../components/SensitiveActionDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import {
@@ -61,12 +65,14 @@ export default function InstallmentDetailPage() {
   const { hasPermission, financialScope } = useAuth();
 
   const canRegisterPayment = hasPermission('payments_register');
+  const canEditReceivedPayment = hasPermission('payments_edit');
   const canViewOperationalFinancials = canViewOperationalFinancialData(financialScope);
   const renderAmount = (value: number) => canViewOperationalFinancials ? formatCurrency(value) : 'Acesso restrito';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [installment, setInstallment] = useState<any>(null);
+  const [permissionSettings, setPermissionSettings] = useState<PermissionSecuritySettingsRecord | null>(null);
 
   const [paymentData, setPaymentData] = useState({
     amount_paid: 0,
@@ -75,9 +81,38 @@ export default function InstallmentDetailPage() {
     notes: '',
   });
 
+  const [paymentEditData, setPaymentEditData] = useState({
+    amount_paid: 0,
+    payment_date: getTodayDateInAppTimezone(),
+    payment_method_used: 'PIX',
+    notes: '',
+  });
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
+  const [showDeletePaymentModal, setShowDeletePaymentModal] = useState(false);
+  const [sensitiveActionBusy, setSensitiveActionBusy] = useState(false);
+  const [sensitiveActionError, setSensitiveActionError] = useState<string | null>(null);
+  const [sensitiveActionSuccess, setSensitiveActionSuccess] = useState<string | null>(null);
+  const [editPaymentConfirmation, setEditPaymentConfirmation] = useState('');
+  const [deletePaymentConfirmation, setDeletePaymentConfirmation] = useState('');
+
   useEffect(() => {
     fetchInstallment();
+    fetchPermissionSettings();
   }, [id]);
+
+  async function fetchPermissionSettings() {
+    try {
+      const settings = await getPermissionSecuritySettings();
+      setPermissionSettings(settings);
+    } catch (error) {
+      console.error('Error fetching permission security settings:', error);
+    }
+  }
+
+  function resetSensitiveActionState() {
+    setSensitiveActionError(null);
+    setSensitiveActionSuccess(null);
+  }
 
   async function fetchInstallment() {
     if (!id) return;
@@ -112,14 +147,17 @@ export default function InstallmentDetailPage() {
         },
       });
 
-      setPaymentData({
+      const normalizedPaymentState = {
         amount_paid: lateChargeBreakdown.totalUpdatedAmount || data.amount,
         payment_date: data.status === 'paid'
           ? formatDateOnlyForInput(data.payment_date)
           : getTodayDateInAppTimezone(),
         payment_method_used: data.payment_method_used || 'PIX',
         notes: data.notes || '',
-      });
+      };
+
+      setPaymentData(normalizedPaymentState);
+      setPaymentEditData(normalizedPaymentState);
     } catch (error) {
       console.error('Error fetching installment:', error);
       navigate('/parcelas');
@@ -319,6 +357,114 @@ export default function InstallmentDetailPage() {
       setSaving(false);
     }
   };
+
+  async function handleUpdateReceivedPayment() {
+    if (!id || !installment || !canEditReceivedPayment || effectiveStatus !== 'paid') return;
+
+    if (
+      (permissionSettings?.require_edit_received_payment_confirmation ?? true) &&
+      editPaymentConfirmation.trim().toUpperCase() !== 'ALTERAR RECEBIMENTO'
+    ) {
+      setSensitiveActionError('Confirmação incorreta. Digite ALTERAR RECEBIMENTO para continuar.');
+      return;
+    }
+
+    setSensitiveActionBusy(true);
+    setSensitiveActionError(null);
+    setSensitiveActionSuccess(null);
+
+    try {
+      const safePaymentDate = formatDateOnlyForInput(paymentEditData.payment_date);
+      const paymentReferenceDate = buildReferenceDate(safePaymentDate);
+
+      const paymentBreakdown = calculateInstallmentLateChargeBreakdown({
+        installmentAmount: installment.amount,
+        amountPaid: 0,
+        dueDate: installment.due_date,
+        referenceDate: paymentReferenceDate,
+        rules: currentLateRules,
+      });
+
+      const { data, error } = await supabase.rpc('update_installment_payment_record_with_breakdown', {
+        p_installment_id: id,
+        p_amount_paid: paymentEditData.amount_paid,
+        p_payment_date: safePaymentDate,
+        p_payment_method: paymentEditData.payment_method_used,
+        p_notes: paymentEditData.notes,
+        p_principal_amount: roundMoney(installment.amount || 0),
+        p_late_fee_percent: Number(
+          currentLateRules.late_fee_enabled
+            ? currentLateRules.late_fee_percent || 0
+            : 0
+        ),
+        p_late_fee_amount: roundMoney(paymentBreakdown.lateFeeAmount || 0),
+        p_interest_percent: Number(
+          currentLateRules.interest_enabled
+            ? currentLateRules.interest_percent || 0
+            : 0
+        ),
+        p_interest_period: currentLateRules.interest_enabled
+          ? currentLateRules.interest_period || 'monthly'
+          : null,
+        p_interest_amount: roundMoney(paymentBreakdown.interestAmount || 0),
+        p_days_overdue: Number(paymentBreakdown.daysLate || 0),
+      });
+
+      if (error) throw error;
+      if (data?.success === false) throw new Error(data.message || 'Não foi possível atualizar o recebimento.');
+
+      setSensitiveActionSuccess('Recebimento atualizado com sucesso.');
+      await fetchInstallment();
+      setTimeout(() => {
+        setShowEditPaymentModal(false);
+        setEditPaymentConfirmation('');
+        resetSensitiveActionState();
+      }, 900);
+    } catch (error: any) {
+      console.error('Error updating payment record:', error);
+      setSensitiveActionError(error.message || 'Erro ao atualizar recebimento.');
+    } finally {
+      setSensitiveActionBusy(false);
+    }
+  }
+
+  async function handleDeleteReceivedPayment() {
+    if (!id || !installment || !canEditReceivedPayment || effectiveStatus !== 'paid') return;
+
+    if (
+      (permissionSettings?.require_delete_financial_record_confirmation ?? true) &&
+      deletePaymentConfirmation.trim().toUpperCase() !== 'APAGAR RECEBIMENTO'
+    ) {
+      setSensitiveActionError('Confirmação incorreta. Digite APAGAR RECEBIMENTO para continuar.');
+      return;
+    }
+
+    setSensitiveActionBusy(true);
+    setSensitiveActionError(null);
+    setSensitiveActionSuccess(null);
+
+    try {
+      const { data, error } = await supabase.rpc('delete_installment_payment_and_reopen', {
+        p_installment_id: id,
+      });
+
+      if (error) throw error;
+      if (data?.success === false) throw new Error(data.message || 'Não foi possível apagar o registro financeiro.');
+
+      setSensitiveActionSuccess('Registro financeiro apagado com sucesso. Reabrindo a parcela...');
+      await fetchInstallment();
+      setTimeout(() => {
+        setShowDeletePaymentModal(false);
+        setDeletePaymentConfirmation('');
+        resetSensitiveActionState();
+      }, 900);
+    } catch (error: any) {
+      console.error('Error deleting payment record:', error);
+      setSensitiveActionError(error.message || 'Erro ao apagar registro financeiro.');
+    } finally {
+      setSensitiveActionBusy(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -760,6 +906,44 @@ export default function InstallmentDetailPage() {
         </div>
 
         <div className="lg:col-span-1 space-y-6">
+          {isPaid && canEditReceivedPayment && (
+            <div className="bg-white rounded-xl border shadow-sm p-6">
+              <h3 className="font-bold text-gray-900 mb-4">Ações Sensíveis</h3>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetSensitiveActionState();
+                    setEditPaymentConfirmation('');
+                    setPaymentEditData({
+                      amount_paid: installment.amount_paid || installment.amount || 0,
+                      payment_date: formatDateOnlyForInput(installment.payment_date) || getTodayDateInAppTimezone(),
+                      payment_method_used: installment.payment_method_used || 'PIX',
+                      notes: installment.notes || '',
+                    });
+                    setShowEditPaymentModal(true);
+                  }}
+                  className="w-full py-2.5 px-4 bg-white hover:bg-gray-50 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 border"
+                >
+                  <Edit size={16} />
+                  Editar recebimento
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetSensitiveActionState();
+                    setDeletePaymentConfirmation('');
+                    setShowDeletePaymentModal(true);
+                  }}
+                  className="w-full py-2.5 px-4 bg-red-50 hover:bg-red-100 rounded-lg text-sm font-semibold text-red-700 transition-colors flex items-center gap-2 border border-red-100"
+                >
+                  <Trash2 size={16} />
+                  Apagar recebimento
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="bg-blue-600 rounded-xl p-6 text-white shadow-lg shadow-blue-200">
             <h3 className="font-bold text-lg mb-4">Ações de Cobrança</h3>
             <div className="space-y-3">
@@ -775,6 +959,194 @@ export default function InstallmentDetailPage() {
           </div>
         </div>
       </div>
+
+      {showEditPaymentModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div className="flex items-center gap-3 text-amber-600 mb-4">
+              <AlertCircle size={24} />
+              <h3 className="text-xl font-bold">Editar recebimento já lançado</h3>
+            </div>
+
+            <div className="space-y-5">
+              <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                <p className="text-sm text-amber-900 font-medium leading-6">
+                  Esta ação altera um recebimento já lançado e impacta histórico, valores financeiros e rastreabilidade da parcela.
+                </p>
+              </div>
+
+              {permissionSettings?.show_sensitive_action_warning && (
+                <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
+                  <p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-2">
+                    Orientação de segurança
+                  </p>
+                  <p className="text-xs text-blue-700 leading-relaxed whitespace-pre-wrap">
+                    {permissionSettings.sensitive_action_guidance_text}
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Valor Pago (R$)
+                  </label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={paymentEditData.amount_paid ?? ''}
+                      onChange={(e) =>
+                        setPaymentEditData({
+                          ...paymentEditData,
+                          amount_paid: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Data do Recebimento
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={paymentEditData.payment_date ?? ''}
+                    onChange={(e) =>
+                      setPaymentEditData({ ...paymentEditData, payment_date: e.target.value })
+                    }
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Método de Pagamento
+                  </label>
+                  <select
+                    value={paymentEditData.payment_method_used ?? 'PIX'}
+                    onChange={(e) =>
+                      setPaymentEditData({
+                        ...paymentEditData,
+                        payment_method_used: e.target.value,
+                      })
+                    }
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                  >
+                    <option value="PIX">PIX</option>
+                    <option value="Cartão de Crédito">Cartão de Crédito</option>
+                    <option value="Cartão de Débito">Cartão de Débito</option>
+                    <option value="Dinheiro">Dinheiro</option>
+                    <option value="Transferência">Transferência</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Observações
+                  </label>
+                  <div className="relative">
+                    <FileText className="absolute left-3 top-3 text-gray-400" size={16} />
+                    <textarea
+                      rows={3}
+                      value={paymentEditData.notes ?? ''}
+                      onChange={(e) =>
+                        setPaymentEditData({ ...paymentEditData, notes: e.target.value })
+                      }
+                      className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                      placeholder="Descreva o motivo da alteração..."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {(permissionSettings?.require_edit_received_payment_confirmation ?? true) && (
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-gray-700">
+                    Para confirmar, digite <span className="text-amber-700 font-black">ALTERAR RECEBIMENTO</span>:
+                  </label>
+                  <input
+                    type="text"
+                    value={editPaymentConfirmation}
+                    onChange={(e) => setEditPaymentConfirmation(e.target.value)}
+                    placeholder="Digite a confirmação aqui"
+                    className="w-full px-4 py-3 border-2 border-amber-100 rounded-xl focus:border-amber-500 outline-none font-bold transition-colors"
+                  />
+                </div>
+              )}
+
+              {sensitiveActionError && (
+                <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg font-medium flex items-center gap-2">
+                  <AlertCircle size={16} />
+                  {sensitiveActionError}
+                </div>
+              )}
+
+              {sensitiveActionSuccess && (
+                <div className="p-3 bg-green-50 text-green-600 text-sm rounded-lg font-medium">
+                  {sensitiveActionSuccess}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditPaymentModal(false);
+                  setEditPaymentConfirmation('');
+                  resetSensitiveActionState();
+                }}
+                disabled={sensitiveActionBusy}
+                className="flex-1 py-3 border rounded-xl font-bold text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateReceivedPayment}
+                disabled={sensitiveActionBusy || ((permissionSettings?.require_edit_received_payment_confirmation ?? true) && editPaymentConfirmation.trim().toUpperCase() !== 'ALTERAR RECEBIMENTO')}
+                className="flex-1 py-3 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 transition-colors shadow-lg shadow-amber-100 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {sensitiveActionBusy ? <Loader2 className="animate-spin h-5 w-5" /> : 'Salvar alteração'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <SensitiveActionDialog
+        open={showDeletePaymentModal}
+        title="Apagar registro financeiro"
+        description="Você está prestes a apagar o recebimento lançado desta parcela. A parcela será reaberta como pendente e o histórico financeiro deste lançamento será removido."
+        guidanceText={permissionSettings?.show_sensitive_action_warning ? permissionSettings.sensitive_action_guidance_text : undefined}
+        implications={[
+          'O registro em payment_records será removido.',
+          'A parcela voltará ao status Pendente.',
+          'Os dados de pagamento e encargos lançados serão limpos da parcela.',
+          'A ação ficará registrada no histórico de auditoria como operação crítica.',
+        ]}
+        tone="danger"
+        typedLabel={(permissionSettings?.require_delete_financial_record_confirmation ?? true) ? 'APAGAR RECEBIMENTO' : undefined}
+        typedValue={deletePaymentConfirmation}
+        onTypedValueChange={setDeletePaymentConfirmation}
+        confirmLabel="Apagar recebimento"
+        onClose={() => {
+          setShowDeletePaymentModal(false);
+          setDeletePaymentConfirmation('');
+          resetSensitiveActionState();
+        }}
+        onConfirm={handleDeleteReceivedPayment}
+        busy={sensitiveActionBusy}
+        confirmDisabled={(permissionSettings?.require_delete_financial_record_confirmation ?? true) && deletePaymentConfirmation.trim().toUpperCase() !== 'APAGAR RECEBIMENTO'}
+        error={sensitiveActionError}
+        successMessage={sensitiveActionSuccess}
+      />
     </div>
   );
 }

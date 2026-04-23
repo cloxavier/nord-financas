@@ -11,6 +11,7 @@ import {
   Shield,
   Building2,
   Activity,
+  CircleHelp,
 } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { AppModuleDefinition } from '@/src/app/extensions/contracts';
@@ -35,6 +36,7 @@ import SettingsPage from '@/src/pages/SettingsPage';
 import ProfilePage from '@/src/pages/ProfilePage';
 import ActivitiesPage from '@/src/pages/ActivitiesPage';
 import UserAccessManagementPage from '@/src/pages/UserAccessManagementPage';
+import HelpPage from '@/src/pages/HelpPage';
 import ClinicSettingsPage from '@/src/pages/settings/ClinicSettingsPage';
 import FinancialPixSettingsPage from '@/src/pages/settings/FinancialPixSettingsPage';
 import NotificationsSettingsPage from '@/src/pages/settings/NotificationsSettingsPage';
@@ -254,6 +256,13 @@ export const coreModule: AppModuleDefinition = {
       layout: true,
       order: 100,
     },
+    {
+      path: '/ajuda',
+      element: <HelpPage />,
+      protected: true,
+      layout: true,
+      order: 105,
+    },
 
     {
       path: '/tratamentos/:id/imprimir',
@@ -358,6 +367,13 @@ export const coreModule: AppModuleDefinition = {
       path: '/perfil',
       icon: User,
       order: 100,
+    },
+    {
+      key: 'help',
+      label: 'Ajuda',
+      path: '/ajuda',
+      icon: CircleHelp,
+      order: 110,
     },
   ],
 

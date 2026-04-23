@@ -166,8 +166,7 @@ export default function ReportViewPage() {
     const params = new URLSearchParams();
     params.set('start', filters.startDate);
     params.set('end', filters.endDate);
-    params.set('back', `/relatorios/${validType}?start=${filters.startDate}&end=${filters.endDate}`);
-    navigate(`/relatorios/${validType}/imprimir?${params.toString()}`);
+    navigate(`/relatorios/${validType}/imprimir?${params.toString()}&autoprint=1`);
   };
 
   const executiveSummaryCards = useMemo(() => {
@@ -274,10 +273,10 @@ export default function ReportViewPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
           <button
             onClick={handlePrint}
-            className="inline-flex items-center gap-2 px-4 py-2 border rounded-lg text-gray-700 font-semibold hover:bg-gray-50 transition-colors"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 border rounded-lg text-gray-700 font-semibold hover:bg-gray-50 transition-colors w-full sm:w-auto"
           >
             <Printer size={18} />
             <span>Imprimir</span>
@@ -285,7 +284,7 @@ export default function ReportViewPage() {
 
           <button
             onClick={handlePrint}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100 w-full sm:w-auto"
           >
             <FileText size={18} />
             <span>Imprimir / Salvar PDF</span>

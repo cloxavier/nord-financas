@@ -6,10 +6,11 @@
  * - adiciona o relatório Financeiro Executivo
  * - separa relatórios financeiros por escopo financeiro
  * - mantém Crescimento de Pacientes disponível fora da trava financeira pesada
+ * - usa navegação na mesma aba para a rota de impressão, melhorando o fluxo no mobile
  */
 
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   BarChart3,
   Download,
@@ -59,7 +60,6 @@ function getRestrictionLabel(reportAccess: ReportCardDefinition['access']) {
 
 export default function ReportsPage() {
   const { financialScope } = useAuth();
-  const navigate = useNavigate();
   const financialAccessLevel = getFinancialAccessLevel(financialScope);
 
   const reports: ReportCardDefinition[] = [
@@ -162,15 +162,13 @@ export default function ReportsPage() {
                       Ver em Tela
                     </Link>
 
-                    <button
-                      onClick={() =>
-                        navigate(`/relatorios/${report.type}/imprimir?back=${encodeURIComponent('/relatorios')}`)
-                      }
+                    <Link
+                      to={`/relatorios/${report.type}/imprimir?autoprint=1`}
                       className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:underline"
                     >
                       <Download size={14} />
                       Imprimir / Salvar PDF
-                    </button>
+                    </Link>
                   </div>
                 )}
               </div>

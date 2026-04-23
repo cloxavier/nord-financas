@@ -5,9 +5,10 @@
  * - respeita o escopo financeiro por cargo
  * - adiciona o relatório Financeiro Executivo
  * - mantém impressão coerente com a visualização em tela
+ * - melhora o fluxo mobile navegando pela mesma aba
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Loader2, Lock, Printer } from 'lucide-react';
 import {
@@ -84,14 +85,19 @@ export default function ReportPrintPage() {
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<FinancialReportData | null>(null);
+  const autoPrintAttemptedRef = useRef(false);
 
-  const filters = {
-    startDate:
-      formatDateOnlyForInput(searchParams.get('start')) || getMonthStartDateInAppTimezone(),
-    endDate:
-      formatDateOnlyForInput(searchParams.get('end')) || getTodayDateInAppTimezone(),
-  };
+  const filters = useMemo(
+    () => ({
+      startDate:
+        formatDateOnlyForInput(searchParams.get('start')) || getMonthStartDateInAppTimezone(),
+      endDate:
+        formatDateOnlyForInput(searchParams.get('end')) || getTodayDateInAppTimezone(),
+    }),
+    [searchParams]
+  );
 
+  const shouldAutoPrint = searchParams.get('autoprint') !== '0';
   const financialAccessLevel = getFinancialAccessLevel(financialScope);
   const canSeeMonthlyForecast = canViewMonthlyForecast(financialScope);
   const canSeeOpenAmountTotal = canViewOpenAmountTotal(financialScope);
@@ -100,31 +106,6 @@ export default function ReportPrintPage() {
   const isRestricted = validType
     ? !canAccessReportType(validType, financialAccessLevel)
     : false;
-
-  const backDestination = useMemo(() => {
-    const backParam = searchParams.get('back');
-
-    if (backParam) {
-      return backParam;
-    }
-
-    if (!validType) {
-      return '/relatorios';
-    }
-
-    const params = new URLSearchParams();
-    params.set('start', filters.startDate);
-    params.set('end', filters.endDate);
-
-    return `/relatorios/${validType}?${params.toString()}`;
-  }, [searchParams, validType, filters.startDate, filters.endDate]);
-
-  const handleManualPrint = () => {
-    window.setTimeout(() => {
-      window.print();
-    }, 80);
-  };
-
 
   useEffect(() => {
     if (!validType || isRestricted) {
@@ -136,20 +117,23 @@ export default function ReportPrintPage() {
   }, [validType, isRestricted, filters.startDate, filters.endDate]);
 
   useEffect(() => {
-    if (!loading && data && !isRestricted) {
-      const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+    if (!loading && data && !isRestricted && shouldAutoPrint && !autoPrintAttemptedRef.current) {
+      autoPrintAttemptedRef.current = true;
 
-      if (!isDesktop) {
-        return;
-      }
-
-      const timer = window.setTimeout(() => {
+      const firstTry = window.setTimeout(() => {
         window.print();
-      }, 700);
+      }, 350);
 
-      return () => window.clearTimeout(timer);
+      const secondTry = window.setTimeout(() => {
+        window.print();
+      }, 1200);
+
+      return () => {
+        window.clearTimeout(firstTry);
+        window.clearTimeout(secondTry);
+      };
     }
-  }, [loading, data, isRestricted]);
+  }, [loading, data, isRestricted, shouldAutoPrint]);
 
   async function fetchReportData() {
     if (!validType) return;
@@ -165,6 +149,18 @@ export default function ReportPrintPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleBack() {
+    if (!validType) {
+      navigate('/relatorios');
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set('start', filters.startDate);
+    params.set('end', filters.endDate);
+    navigate(`/relatorios/${validType}?${params.toString()}`);
   }
 
   if (!validType) {
@@ -200,43 +196,43 @@ export default function ReportPrintPage() {
 
   return (
     <div className="min-h-screen bg-white p-4 md:p-8">
-      <div className="max-w-5xl mx-auto mb-6 md:mb-8 print:hidden bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <button
-          onClick={() => navigate(backDestination)}
-          className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-3 text-gray-700 hover:text-gray-900 font-bold transition-colors border rounded-lg bg-white"
-          type="button"
-        >
-          <ArrowLeft size={20} />
-          Voltar
-        </button>
-
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-end w-full md:w-auto">
-          <p className="text-sm text-gray-500 md:mr-1 leading-6 md:max-w-sm">
-            Use esta tela para imprimir o relatório ou salvar como PDF no menu de impressão do seu dispositivo.
-          </p>
-
+      <div className="max-w-5xl mx-auto mb-8 print:hidden bg-gray-50 p-4 rounded-xl border border-gray-200">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <button
-            onClick={handleManualPrint}
-            className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
-            type="button"
+            onClick={handleBack}
+            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 font-bold transition-colors"
           >
-            <Printer size={20} />
-            Imprimir / Salvar PDF
+            <ArrowLeft size={20} />
+            Voltar
           </button>
+
+          <div className="flex flex-col sm:items-end gap-3">
+            <p className="text-sm text-gray-500 sm:text-right">
+              O sistema tentará abrir a impressão automaticamente. Se não abrir, use o botão abaixo.
+            </p>
+
+            <button
+              onClick={() => window.print()}
+              className="flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100 w-full sm:w-auto"
+            >
+              <Printer size={20} />
+              Imprimir / Salvar PDF
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-5xl mx-auto bg-white print:p-0">
-        <div className="border-b-2 border-gray-900 pb-6 mb-8 flex flex-col gap-6 md:flex-row md:justify-between md:items-start">
+        <div className="border-b-2 border-gray-900 pb-6 mb-8 flex justify-between items-start gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-black text-gray-900 uppercase tracking-tight">
+            <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight">
               Nord Finanças
             </h1>
             <p className="text-sm text-gray-500 font-medium">Relatório Administrativo</p>
           </div>
 
-          <div className="text-left md:text-right">
-            <h2 className="text-2xl md:text-xl font-bold text-gray-900">{getReportTitle(validType)}</h2>
+          <div className="text-right">
+            <h2 className="text-xl font-bold text-gray-900">{getReportTitle(validType)}</h2>
             <p className="text-xs text-gray-500">Emissão: {formatDateTime(new Date())}</p>
             <p className="text-xs font-bold text-gray-700 mt-1">
               Período: {formatDate(filters.startDate)} até {formatDate(filters.endDate)}
@@ -730,7 +726,7 @@ export default function ReportPrintPage() {
           __html: `
             @media print {
               body { background: white !important; }
-              .print\\:hidden { display: none !important; }
+              .print\:hidden { display: none !important; }
               @page { margin: 1cm; }
             }
           `,

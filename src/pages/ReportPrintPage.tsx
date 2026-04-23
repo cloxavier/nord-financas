@@ -7,7 +7,7 @@
  * - mantém impressão coerente com a visualização em tela
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Loader2, Lock, Printer } from 'lucide-react';
 import {
@@ -101,6 +101,16 @@ export default function ReportPrintPage() {
     ? !canAccessReportType(validType, financialAccessLevel)
     : false;
 
+  const reportReturnUrl = useMemo(() => {
+    if (!validType) return '/relatorios';
+
+    const params = new URLSearchParams();
+    params.set('start', filters.startDate);
+    params.set('end', filters.endDate);
+
+    return `/relatorios/${validType}?${params.toString()}`;
+  }, [validType, filters.startDate, filters.endDate]);
+
   useEffect(() => {
     if (!validType || isRestricted) {
       setLoading(false);
@@ -169,23 +179,25 @@ export default function ReportPrintPage() {
 
   return (
     <div className="min-h-screen bg-white p-4 md:p-8">
-      <div className="max-w-5xl mx-auto mb-8 flex items-center justify-between print:hidden bg-gray-50 p-4 rounded-xl border border-gray-200">
+      <div className="max-w-5xl mx-auto mb-6 md:mb-8 print:hidden bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 font-bold transition-colors"
+          onClick={() => navigate(reportReturnUrl)}
+          className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-3 text-gray-700 hover:text-gray-900 font-bold transition-colors border rounded-lg bg-white"
+          type="button"
         >
           <ArrowLeft size={20} />
           Voltar
         </button>
 
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-gray-500 mr-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-end w-full md:w-auto">
+          <p className="text-sm text-gray-500 md:mr-1 leading-6 md:max-w-sm">
             O diálogo de impressão deve abrir automaticamente.
           </p>
 
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
+            className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
+            type="button"
           >
             <Printer size={20} />
             Imprimir agora
@@ -194,16 +206,16 @@ export default function ReportPrintPage() {
       </div>
 
       <div className="max-w-5xl mx-auto bg-white print:p-0">
-        <div className="border-b-2 border-gray-900 pb-6 mb-8 flex justify-between items-start">
+        <div className="border-b-2 border-gray-900 pb-6 mb-8 flex flex-col gap-6 md:flex-row md:justify-between md:items-start">
           <div>
-            <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight">
+            <h1 className="text-2xl md:text-3xl font-black text-gray-900 uppercase tracking-tight">
               Nord Finanças
             </h1>
             <p className="text-sm text-gray-500 font-medium">Relatório Administrativo</p>
           </div>
 
-          <div className="text-right">
-            <h2 className="text-xl font-bold text-gray-900">{getReportTitle(validType)}</h2>
+          <div className="text-left md:text-right">
+            <h2 className="text-2xl md:text-xl font-bold text-gray-900">{getReportTitle(validType)}</h2>
             <p className="text-xs text-gray-500">Emissão: {formatDateTime(new Date())}</p>
             <p className="text-xs font-bold text-gray-700 mt-1">
               Período: {formatDate(filters.startDate)} até {formatDate(filters.endDate)}

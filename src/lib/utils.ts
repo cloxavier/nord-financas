@@ -181,3 +181,56 @@ export function formatDateOnlyForInput(date: string | Date | null | undefined) {
 
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
+
+/**
+ * Normaliza um telefone para uso em links do WhatsApp.
+ * Regra atual da aplicação:
+ * - assume Brasil (+55) como padrão quando o número vier apenas com DDD + telefone
+ * - aceita números já completos com código do país
+ * - remove símbolos como espaços, parênteses e hífens
+ */
+export function normalizePhoneForWhatsApp(
+  phone: string | null | undefined,
+  defaultCountryCode = '55'
+) {
+  let digits = String(phone || '').replace(/\D/g, '');
+
+  if (!digits) return null;
+
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+  }
+
+  if ((digits.length === 10 || digits.length === 11) && !digits.startsWith(defaultCountryCode)) {
+    return `${defaultCountryCode}${digits}`;
+  }
+
+  if (digits.startsWith(defaultCountryCode) && (digits.length === 12 || digits.length === 13)) {
+    return digits;
+  }
+
+  if (digits.length >= 12 && digits.length <= 15) {
+    return digits;
+  }
+
+  return null;
+}
+
+/**
+ * Monta um link do WhatsApp pronto para uso.
+ * Retorna null quando o telefone não for válido para abertura do app.
+ */
+export function buildWhatsAppLink(
+  phone: string | null | undefined,
+  message: string,
+  defaultCountryCode = '55'
+) {
+  const normalizedPhone = normalizePhoneForWhatsApp(phone, defaultCountryCode);
+
+  if (!normalizedPhone) {
+    return null;
+  }
+
+  return `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
+}
+

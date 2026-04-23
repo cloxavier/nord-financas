@@ -208,9 +208,12 @@ export default function PatientFormPage() {
                     value={formData.phone ?? ''}
                     onChange={e => setFormData({...formData, phone: e.target.value})}
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="(00) 00000-0000"
+                    placeholder="(21) 99999-0000"
                   />
                 </div>
+                <p className="text-xs text-gray-500 mt-1.5 leading-5">
+                  Informe DDD + número. Para o WhatsApp, a aplicação assume Brasil (+55) quando o código do país não for informado.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>

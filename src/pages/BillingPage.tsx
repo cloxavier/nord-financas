@@ -27,7 +27,7 @@ import {
   canViewOpenAmountTotal,
   canViewOperationalFinancialData,
 } from '@/src/domain/access/policies/financialScopePolicies';
-import { cn, formatCurrency, formatDate } from '../lib/utils';
+import { buildWhatsAppLink, cn, formatCurrency, formatDate } from '../lib/utils';
 import {
   BillingQueueFilter,
   BillingQueueRow,
@@ -167,15 +167,36 @@ export default function BillingPage() {
     [page, pageSize, totalCount]
   );
 
-  const getWhatsAppLink = (phone: string, name: string, amount: number, dueDate: string) => {
+  const getBillingMessage = (name: string, amount: number, dueDate: string) => {
     const amountText = canViewOperationalFinancials ? formatCurrency(amount) : 'sua parcela';
-    const message = `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que ${amountText} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
-    return `https://wa.me/${(phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+    return `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que ${amountText} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
+  };
+
+  const getWhatsAppLink = (phone: string, name: string, amount: number, dueDate: string) => {
+    const message = getBillingMessage(name, amount, dueDate);
+    return buildWhatsAppLink(phone, message);
+  };
+
+  const handleOpenWhatsApp = (
+    phone: string,
+    name: string,
+    amount: number,
+    dueDate: string
+  ) => {
+    const link = getWhatsAppLink(phone, name, amount, dueDate);
+
+    if (!link) {
+      alert(
+        'Não foi possível abrir o WhatsApp porque o telefone do paciente está ausente ou incompleto. Cadastre DDD + número para o contato funcionar corretamente.'
+      );
+      return;
+    }
+
+    window.open(link, '_blank', 'noopener,noreferrer');
   };
 
   const copyBillingMessage = async (name: string, amount: number, dueDate: string) => {
-    const amountText = canViewOperationalFinancials ? formatCurrency(amount) : 'sua parcela';
-    const message = `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que ${amountText} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
+    const message = getBillingMessage(name, amount, dueDate);
     await navigator.clipboard.writeText(message);
     alert('Mensagem copiada para a área de transferência!');
   };
@@ -378,20 +399,21 @@ export default function BillingPage() {
 
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <a
-                                href={getWhatsAppLink(
-                                  row.patientPhone,
-                                  row.patientName,
-                                  row.amount,
-                                  row.dueDate
-                                )}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <button
+                                onClick={() =>
+                                  handleOpenWhatsApp(
+                                    row.patientPhone,
+                                    row.patientName,
+                                    row.amount,
+                                    row.dueDate
+                                  )
+                                }
                                 className="p-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors"
                                 title="Abrir WhatsApp"
+                                type="button"
                               >
                                 <Phone size={18} />
-                              </a>
+                              </button>
 
                               <button
                                 onClick={() =>
@@ -534,20 +556,21 @@ export default function BillingPage() {
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 pt-2">
-                        <a
-                          href={getWhatsAppLink(
-                            row.patientPhone,
-                            row.patientName,
-                            row.amount,
-                            row.dueDate
-                          )}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          onClick={() =>
+                            handleOpenWhatsApp(
+                              row.patientPhone,
+                              row.patientName,
+                              row.amount,
+                              row.dueDate
+                            )
+                          }
                           className="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-600 rounded-lg text-xs font-bold"
+                          type="button"
                         >
                           <Phone size={14} />
                           WhatsApp
-                        </a>
+                        </button>
 
                         <button
                           onClick={() => copyBillingMessage(row.patientName, row.amount, row.dueDate)}

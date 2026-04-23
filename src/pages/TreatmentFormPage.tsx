@@ -27,7 +27,7 @@ import {
   UserPlus,
   PlusCircle,
 } from 'lucide-react';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, getPatientPhoneDisplay } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { canViewOperationalFinancialData } from '@/src/domain/access/policies/financialScopePolicies';
 import { logActivity } from '../lib/activities';
@@ -153,7 +153,7 @@ export default function TreatmentFormPage() {
   async function fetchInitialData() {
     try {
       const [patientsRes, proceduresRes, financialSettings] = await Promise.all([
-        supabase.from('patients').select('id, full_name, phone, email').order('full_name'),
+        supabase.from('patients').select('id, full_name, phone, phone_country_code, phone_area_code, phone_number, email').order('full_name'),
         supabase.from('procedure_catalog').select('*').eq('is_active', true).order('name'),
         getFinancialPixSettings().catch(() => null),
       ]);
@@ -417,7 +417,7 @@ export default function TreatmentFormPage() {
     } else {
       const selectedPatient = patients.find((p) => p.id === formData.patient_id);
       patientName = selectedPatient?.full_name || '';
-      patientPhone = selectedPatient?.phone || '';
+      patientPhone = (selectedPatient ? getPatientPhoneDisplay(selectedPatient) : '') || '';
       patientEmail = selectedPatient?.email || '';
     }
 

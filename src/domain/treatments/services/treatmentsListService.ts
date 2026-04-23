@@ -1,5 +1,7 @@
+
 import { supabase } from '@/src/lib/supabase';
 import { resolvePatientName } from '@/src/lib/businessRules';
+import { digitsOnly } from '@/src/lib/utils';
 
 export type TreatmentListFilter =
   | 'all'
@@ -35,9 +37,13 @@ export interface TreatmentsListResult {
 }
 
 function isUuidLike(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value.trim()
-  );
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function buildPatientSearchFilter(term: string) {
+  const digits = digitsOnly(term);
+  if (digits) return `full_name.ilike.%${term}%,phone.ilike.%${digits}%`;
+  return `full_name.ilike.%${term}%`;
 }
 
 async function resolvePatientIdsBySearchTerm(searchTerm: string) {
@@ -47,17 +53,14 @@ async function resolvePatientIdsBySearchTerm(searchTerm: string) {
   const { data, error } = await supabase
     .from('patients')
     .select('id')
-    .or(`full_name.ilike.%${term}%,phone.ilike.%${term}%`)
+    .or(buildPatientSearchFilter(term))
     .limit(200);
-
   if (error) throw error;
 
   return (data || []).map((item: any) => item.id).filter(Boolean);
 }
 
-export async function getTreatmentsListData(
-  params: TreatmentsListParams
-): Promise<TreatmentsListResult> {
+export async function getTreatmentsListData(params: TreatmentsListParams): Promise<TreatmentsListResult> {
   const page = Math.max(1, Math.floor(params.page || 1));
   const pageSize = Math.max(1, Math.min(100, Math.floor(params.pageSize || 25)));
   const from = (page - 1) * pageSize;
@@ -69,20 +72,15 @@ export async function getTreatmentsListData(
     .select('*, patients(id, full_name)', { count: 'exact' })
     .order('created_at', { ascending: false });
 
-  if (params.statusFilter !== 'all') {
-    query = query.eq('status', params.statusFilter);
-  }
+  if (params.statusFilter !== 'all') query = query.eq('status', params.statusFilter);
 
   if (term) {
     if (isUuidLike(term)) {
       query = query.eq('id', term);
     } else {
       const patientIds = await resolvePatientIdsBySearchTerm(term);
-
       if (patientIds && patientIds.length > 0) {
-        query = query.or(
-          `patient_name_snapshot.ilike.%${term}%,id.eq.${term},patient_id.in.(${patientIds.join(',')})`
-        );
+        query = query.or(`patient_name_snapshot.ilike.%${term}%,id.eq.${term},patient_id.in.(${patientIds.join(',')})`);
       } else {
         query = query.ilike('patient_name_snapshot', `%${term}%`);
       }
@@ -90,7 +88,6 @@ export async function getTreatmentsListData(
   }
 
   const { data, error, count } = await query.range(from, to);
-
   if (error) throw error;
 
   const rows: TreatmentListRow[] = (data || []).map((item: any) => ({
@@ -106,11 +103,5 @@ export async function getTreatmentsListData(
   const totalCount = count || 0;
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
 
-  return {
-    rows,
-    totalCount,
-    page,
-    pageSize,
-    totalPages,
-  };
+  return { rows, totalCount, page, pageSize, totalPages };
 }

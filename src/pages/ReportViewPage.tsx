@@ -166,7 +166,8 @@ export default function ReportViewPage() {
     const params = new URLSearchParams();
     params.set('start', filters.startDate);
     params.set('end', filters.endDate);
-    window.open(`/relatorios/${validType}/imprimir?${params.toString()}`, '_blank');
+    params.set('back', `/relatorios/${validType}?start=${filters.startDate}&end=${filters.endDate}`);
+    navigate(`/relatorios/${validType}/imprimir?${params.toString()}`);
   };
 
   const executiveSummaryCards = useMemo(() => {
@@ -287,7 +288,7 @@ export default function ReportViewPage() {
             className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
           >
             <FileText size={18} />
-            <span>Gerar PDF</span>
+            <span>Imprimir / Salvar PDF</span>
           </button>
         </div>
       </div>

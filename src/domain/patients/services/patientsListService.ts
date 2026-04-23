@@ -1,4 +1,6 @@
+
 import { supabase } from '@/src/lib/supabase';
+import { digitsOnly, getPatientPhoneDisplay } from '@/src/lib/utils';
 
 export interface PatientListRow {
   id: string;
@@ -74,10 +76,7 @@ async function loadAllActivePatientIds(): Promise<Set<string>> {
 
 async function loadActivePatientIdsForPage(patientIds: string[]): Promise<Set<string>> {
   const activePatientIds = new Set<string>();
-
-  if (patientIds.length === 0) {
-    return activePatientIds;
-  }
+  if (patientIds.length === 0) return activePatientIds;
 
   const uniquePatientIds = Array.from(new Set(patientIds));
 
@@ -91,17 +90,13 @@ async function loadActivePatientIdsForPage(patientIds: string[]): Promise<Set<st
   const treatmentPatientMap = new Map<string, string>();
 
   (treatments || []).forEach((item: any) => {
-    if (item?.id && item?.patient_id) {
-      treatmentPatientMap.set(item.id, item.patient_id);
-    }
-
+    if (item?.id && item?.patient_id) treatmentPatientMap.set(item.id, item.patient_id);
     if (item?.patient_id && ['pending', 'in_progress'].includes(item.status)) {
       activePatientIds.add(item.patient_id);
     }
   });
 
   const treatmentIds = Array.from(treatmentPatientMap.keys());
-
   if (treatmentIds.length > 0) {
     const { data: openInstallments, error: openInstallmentsError } = await supabase
       .from('installments')
@@ -120,9 +115,15 @@ async function loadActivePatientIdsForPage(patientIds: string[]): Promise<Set<st
   return activePatientIds;
 }
 
-export async function getPatientsListData(
-  params: PatientsListParams
-): Promise<PatientsListResult> {
+function buildPatientSearchFilter(searchTerm: string) {
+  const digits = digitsOnly(searchTerm);
+  if (digits) {
+    return `full_name.ilike.%${searchTerm}%,cpf.ilike.%${searchTerm}%,phone.ilike.%${digits}%,email.ilike.%${searchTerm}%`;
+  }
+  return `full_name.ilike.%${searchTerm}%,cpf.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`;
+}
+
+export async function getPatientsListData(params: PatientsListParams): Promise<PatientsListResult> {
   const page = Math.max(1, Math.floor(params.page || 1));
   const pageSize = Math.max(1, Math.min(100, Math.floor(params.pageSize || 25)));
   const from = (page - 1) * pageSize;
@@ -130,42 +131,28 @@ export async function getPatientsListData(
   const searchTerm = normalizeSearchTerm(params.searchTerm);
 
   let activePatientIds: Set<string> | null = null;
-
   if (params.onlyActive) {
     activePatientIds = await loadAllActivePatientIds();
-
     if (activePatientIds.size === 0) {
-      return {
-        rows: [],
-        totalCount: 0,
-        page,
-        pageSize,
-        totalPages: 0,
-      };
+      return { rows: [], totalCount: 0, page, pageSize, totalPages: 0 };
     }
   }
 
   let query = supabase
     .from('patients')
-    .select('id, full_name, phone, email, cpf, created_at', { count: 'exact' })
+    .select(
+      'id, full_name, phone, phone_country_code, phone_area_code, phone_number, email, cpf, created_at',
+      { count: 'exact' }
+    )
     .order('full_name', { ascending: true });
 
-  if (searchTerm) {
-    query = query.or(
-      `full_name.ilike.%${searchTerm}%,cpf.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`
-    );
-  }
-
-  if (activePatientIds) {
-    query = query.in('id', Array.from(activePatientIds));
-  }
+  if (searchTerm) query = query.or(buildPatientSearchFilter(searchTerm));
+  if (activePatientIds) query = query.in('id', Array.from(activePatientIds));
 
   const { data, error, count } = await query.range(from, to);
-
   if (error) throw error;
 
   const safePatients = data || [];
-
   const pageActivePatientIds = activePatientIds
     ? activePatientIds
     : await loadActivePatientIdsForPage(safePatients.map((patient: any) => patient.id));
@@ -173,7 +160,7 @@ export async function getPatientsListData(
   const rows: PatientListRow[] = safePatients.map((patient: any) => ({
     id: patient.id,
     full_name: patient.full_name,
-    phone: patient.phone || null,
+    phone: getPatientPhoneDisplay(patient) || null,
     email: patient.email || null,
     cpf: patient.cpf || null,
     created_at: patient.created_at,
@@ -183,11 +170,5 @@ export async function getPatientsListData(
   const totalCount = count || 0;
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
 
-  return {
-    rows,
-    totalCount,
-    page,
-    pageSize,
-    totalPages,
-  };
+  return { rows, totalCount, page, pageSize, totalPages };
 }

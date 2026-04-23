@@ -1,3 +1,4 @@
+
 /**
  * Funções utilitárias compartilhadas.
  * Este arquivo concentra:
@@ -27,16 +28,10 @@ export function formatCurrency(value: number) {
   }).format(value);
 }
 
-/**
- * Verifica se a string está no formato puro YYYY-MM-DD.
- */
 export function isDateOnlyString(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-/**
- * Normaliza uma entrada qualquer em Date válido.
- */
 function toValidDate(value: string | Date | number | null | undefined) {
   if (!value) return null;
 
@@ -44,10 +39,6 @@ function toValidDate(value: string | Date | number | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-/**
- * Extrai ano/mês/dia já respeitando a timezone oficial da aplicação.
- * Retorna mês e dia sempre com 2 dígitos.
- */
 function getAppDateParts(value: string | Date | number | null | undefined = new Date()) {
   const safeDate = toValidDate(value);
   if (!safeDate) return null;
@@ -60,7 +51,6 @@ function getAppDateParts(value: string | Date | number | null | undefined = new 
   });
 
   const parts = formatter.formatToParts(safeDate);
-
   const year = parts.find((part) => part.type === 'year')?.value;
   const month = parts.find((part) => part.type === 'month')?.value;
   const day = parts.find((part) => part.type === 'day')?.value;
@@ -70,10 +60,6 @@ function getAppDateParts(value: string | Date | number | null | undefined = new 
   return { year, month, day };
 }
 
-/**
- * Retorna a data de hoje na timezone da aplicação em YYYY-MM-DD.
- * Esta função substitui o padrão antigo new Date().toISOString().split('T')[0].
- */
 export function getTodayDateInAppTimezone() {
   const parts = getAppDateParts(new Date());
   if (!parts) return '';
@@ -81,9 +67,6 @@ export function getTodayDateInAppTimezone() {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-/**
- * Retorna o primeiro dia do mês corrente na timezone da aplicação.
- */
 export function getMonthStartDateInAppTimezone(
   referenceDate: string | Date | number | null | undefined = new Date()
 ) {
@@ -93,10 +76,6 @@ export function getMonthStartDateInAppTimezone(
   return `${parts.year}-${parts.month}-01`;
 }
 
-/**
- * Converte uma string YYYY-MM-DD em Date local, sem sofrer deslocamento de fuso.
- * Usa meio-dia local para evitar problemas de DST/UTC.
- */
 export function parseDateOnlyAsLocalDate(dateStr: string | null | undefined) {
   if (!dateStr || typeof dateStr !== 'string') return null;
 
@@ -107,27 +86,18 @@ export function parseDateOnlyAsLocalDate(dateStr: string | null | undefined) {
   return new Date(year, month - 1, day, 12, 0, 0, 0);
 }
 
-/**
- * Formata uma data YYYY-MM-DD para DD/MM/AAAA sem deslocamento.
- */
 export function formatDateOnly(dateStr: string | null | undefined) {
   if (!dateStr) return 'Não informado';
   if (typeof dateStr !== 'string') return formatDate(dateStr);
 
   const pureDate = dateStr.split('T')[0];
   const parts = pureDate.split('-');
-
   if (parts.length !== 3) return formatDate(dateStr);
 
   const [year, month, day] = parts;
   return `${day}/${month}/${year}`;
 }
 
-/**
- * Formata data para DD/MM/AAAA.
- * - Se receber YYYY-MM-DD puro, trata como data sem horário.
- * - Se receber datetime, formata respeitando America/Sao_Paulo.
- */
 export function formatDate(date: string | Date | null | undefined) {
   if (!date) return 'N/A';
 
@@ -146,9 +116,6 @@ export function formatDate(date: string | Date | null | undefined) {
   }).format(safeDate);
 }
 
-/**
- * Formata data e hora completas na timezone da aplicação.
- */
 export function formatDateTime(date: string | Date | null | undefined) {
   if (!date) return 'N/A';
 
@@ -165,10 +132,6 @@ export function formatDateTime(date: string | Date | null | undefined) {
   }).format(safeDate);
 }
 
-/**
- * Prepara uma data para input[type="date"] em YYYY-MM-DD
- * sem deslocamento indevido de UTC.
- */
 export function formatDateOnlyForInput(date: string | Date | null | undefined) {
   if (!date) return '';
 
@@ -182,55 +145,160 @@ export function formatDateOnlyForInput(date: string | Date | null | undefined) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-/**
- * Normaliza um telefone para uso em links do WhatsApp.
- * Regra atual da aplicação:
- * - assume Brasil (+55) como padrão quando o número vier apenas com DDD + telefone
- * - aceita números já completos com código do país
- * - remove símbolos como espaços, parênteses e hífens
- */
-export function normalizePhoneForWhatsApp(
-  phone: string | null | undefined,
-  defaultCountryCode = '55'
-) {
-  let digits = String(phone || '').replace(/\D/g, '');
-
-  if (!digits) return null;
-
-  if (digits.startsWith('00')) {
-    digits = digits.slice(2);
-  }
-
-  if ((digits.length === 10 || digits.length === 11) && !digits.startsWith(defaultCountryCode)) {
-    return `${defaultCountryCode}${digits}`;
-  }
-
-  if (digits.startsWith(defaultCountryCode) && (digits.length === 12 || digits.length === 13)) {
-    return digits;
-  }
-
-  if (digits.length >= 12 && digits.length <= 15) {
-    return digits;
-  }
-
-  return null;
+export interface PhonePartsInput {
+  countryCode?: string | null;
+  areaCode?: string | null;
+  number?: string | null;
 }
 
-/**
- * Monta um link do WhatsApp pronto para uso.
- * Retorna null quando o telefone não for válido para abertura do app.
- */
-export function buildWhatsAppLink(
-  phone: string | null | undefined,
-  message: string,
-  defaultCountryCode = '55'
-) {
-  const normalizedPhone = normalizePhoneForWhatsApp(phone, defaultCountryCode);
+export interface NormalizedPhoneParts {
+  countryCode: string;
+  areaCode: string;
+  number: string;
+}
 
-  if (!normalizedPhone) {
+const COUNTRY_DIAL_CODE_BY_REGION: Record<string, string> = {
+  BR: '55',
+  PT: '351',
+  US: '1',
+  CA: '1',
+  AR: '54',
+  CL: '56',
+  CO: '57',
+  MX: '52',
+  PY: '595',
+  UY: '598',
+  ES: '34',
+  GB: '44',
+};
+
+export const PHONE_COUNTRY_OPTIONS = [
+  { code: '55', label: 'Brasil (+55)' },
+  { code: '351', label: 'Portugal (+351)' },
+  { code: '1', label: 'Estados Unidos / Canadá (+1)' },
+  { code: '34', label: 'Espanha (+34)' },
+  { code: '44', label: 'Reino Unido (+44)' },
+  { code: '52', label: 'México (+52)' },
+  { code: '54', label: 'Argentina (+54)' },
+  { code: '56', label: 'Chile (+56)' },
+  { code: '57', label: 'Colômbia (+57)' },
+  { code: '598', label: 'Uruguai (+598)' },
+  { code: '595', label: 'Paraguai (+595)' },
+];
+
+export function digitsOnly(value: string | number | null | undefined) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+export function getDefaultCountryCodeForLocale() {
+  const localeFromBrowser =
+    typeof navigator !== 'undefined' ? navigator.language || navigator.languages?.[0] : '';
+
+  const regionMatch = String(localeFromBrowser).match(/[-_]([A-Z]{2})$/i);
+  const region = regionMatch?.[1]?.toUpperCase() || 'BR';
+
+  return COUNTRY_DIAL_CODE_BY_REGION[region] || '55';
+}
+
+export function normalizeCountryCode(value: string | null | undefined) {
+  return digitsOnly(value).slice(0, 4);
+}
+
+export function normalizeAreaCode(value: string | null | undefined) {
+  return digitsOnly(value).slice(0, 4);
+}
+
+export function normalizePhoneNumber(value: string | null | undefined) {
+  return digitsOnly(value).slice(0, 15);
+}
+
+export function normalizePhoneParts(parts: PhonePartsInput): NormalizedPhoneParts {
+  return {
+    countryCode: normalizeCountryCode(parts.countryCode),
+    areaCode: normalizeAreaCode(parts.areaCode),
+    number: normalizePhoneNumber(parts.number),
+  };
+}
+
+export function buildPhoneStorageValue(parts: PhonePartsInput) {
+  const normalized = normalizePhoneParts(parts);
+  const digits = `${normalized.countryCode}${normalized.areaCode}${normalized.number}`;
+  return digits || null;
+}
+
+export function buildPhoneE164(parts: PhonePartsInput) {
+  const normalized = normalizePhoneParts(parts);
+
+  if (!normalized.countryCode || !normalized.areaCode || !normalized.number) {
     return null;
   }
 
-  return `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
+  return `${normalized.countryCode}${normalized.areaCode}${normalized.number}`;
 }
 
+function formatBrazilLocalNumber(number: string) {
+  if (number.length === 9) return `${number.slice(0, 5)}-${number.slice(5)}`;
+  if (number.length === 8) return `${number.slice(0, 4)}-${number.slice(4)}`;
+  return number;
+}
+
+export function formatPhoneDisplay(parts: PhonePartsInput) {
+  const normalized = normalizePhoneParts(parts);
+
+  if (!normalized.countryCode && !normalized.areaCode && !normalized.number) {
+    return '';
+  }
+
+  const countryPrefix = normalized.countryCode ? `+${normalized.countryCode}` : '';
+  const areaText = normalized.areaCode ? `(${normalized.areaCode})` : '';
+  const numberText = normalized.countryCode === '55' ? formatBrazilLocalNumber(normalized.number) : normalized.number;
+
+  return [countryPrefix, areaText, numberText].filter(Boolean).join(' ').trim();
+}
+
+export function parseLegacyPhoneToParts(phone: string | null | undefined): NormalizedPhoneParts {
+  let digits = digitsOnly(phone);
+  if (!digits) return { countryCode: '', areaCode: '', number: '' };
+
+  if (digits.startsWith('00')) digits = digits.slice(2);
+
+  if (digits.length === 10 || digits.length === 11) {
+    return { countryCode: '55', areaCode: digits.slice(0, 2), number: digits.slice(2) };
+  }
+
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    return { countryCode: '55', areaCode: digits.slice(2, 4), number: digits.slice(4) };
+  }
+
+  for (let countryLength = 1; countryLength <= 4; countryLength += 1) {
+    const countryCode = digits.slice(0, countryLength);
+    const remaining = digits.slice(countryLength);
+    if (remaining.length === 10 || remaining.length === 11) {
+      return { countryCode, areaCode: remaining.slice(0, 2), number: remaining.slice(2) };
+    }
+  }
+
+  return { countryCode: '', areaCode: '', number: digits };
+}
+
+export function getPhonePartsFromPatient(patient: any): NormalizedPhoneParts {
+  const countryCode = normalizeCountryCode(patient?.phone_country_code);
+  const areaCode = normalizeAreaCode(patient?.phone_area_code);
+  const number = normalizePhoneNumber(patient?.phone_number);
+
+  if (countryCode || areaCode || number) {
+    return { countryCode, areaCode, number };
+  }
+
+  return parseLegacyPhoneToParts(patient?.phone);
+}
+
+export function getPatientPhoneDisplay(patient: any) {
+  return formatPhoneDisplay(getPhonePartsFromPatient(patient));
+}
+
+export function buildWhatsAppLink(phone: string | null | undefined, message: string) {
+  const digits = digitsOnly(phone);
+  if (digits.length < 10 || digits.length > 15) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}

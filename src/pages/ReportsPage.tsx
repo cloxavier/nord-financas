@@ -9,7 +9,7 @@
  */
 
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   Download,
@@ -59,6 +59,7 @@ function getRestrictionLabel(reportAccess: ReportCardDefinition['access']) {
 
 export default function ReportsPage() {
   const { financialScope } = useAuth();
+  const navigate = useNavigate();
   const financialAccessLevel = getFinancialAccessLevel(financialScope);
 
   const reports: ReportCardDefinition[] = [
@@ -163,12 +164,12 @@ export default function ReportsPage() {
 
                     <button
                       onClick={() =>
-                        window.open(`/relatorios/${report.type}/imprimir`, '_blank')
+                        navigate(`/relatorios/${report.type}/imprimir?back=${encodeURIComponent('/relatorios')}`)
                       }
                       className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:underline"
                     >
                       <Download size={14} />
-                      Gerar PDF
+                      Imprimir / Salvar PDF
                     </button>
                   </div>
                 )}

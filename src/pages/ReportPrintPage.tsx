@@ -101,15 +101,30 @@ export default function ReportPrintPage() {
     ? !canAccessReportType(validType, financialAccessLevel)
     : false;
 
-  const reportReturnUrl = useMemo(() => {
-    if (!validType) return '/relatorios';
+  const backDestination = useMemo(() => {
+    const backParam = searchParams.get('back');
+
+    if (backParam) {
+      return backParam;
+    }
+
+    if (!validType) {
+      return '/relatorios';
+    }
 
     const params = new URLSearchParams();
     params.set('start', filters.startDate);
     params.set('end', filters.endDate);
 
     return `/relatorios/${validType}?${params.toString()}`;
-  }, [validType, filters.startDate, filters.endDate]);
+  }, [searchParams, validType, filters.startDate, filters.endDate]);
+
+  const handleManualPrint = () => {
+    window.setTimeout(() => {
+      window.print();
+    }, 80);
+  };
+
 
   useEffect(() => {
     if (!validType || isRestricted) {
@@ -122,11 +137,17 @@ export default function ReportPrintPage() {
 
   useEffect(() => {
     if (!loading && data && !isRestricted) {
-      const timer = setTimeout(() => {
+      const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+
+      if (!isDesktop) {
+        return;
+      }
+
+      const timer = window.setTimeout(() => {
         window.print();
       }, 700);
 
-      return () => clearTimeout(timer);
+      return () => window.clearTimeout(timer);
     }
   }, [loading, data, isRestricted]);
 
@@ -181,7 +202,7 @@ export default function ReportPrintPage() {
     <div className="min-h-screen bg-white p-4 md:p-8">
       <div className="max-w-5xl mx-auto mb-6 md:mb-8 print:hidden bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <button
-          onClick={() => navigate(reportReturnUrl)}
+          onClick={() => navigate(backDestination)}
           className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-3 text-gray-700 hover:text-gray-900 font-bold transition-colors border rounded-lg bg-white"
           type="button"
         >
@@ -191,16 +212,16 @@ export default function ReportPrintPage() {
 
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-end w-full md:w-auto">
           <p className="text-sm text-gray-500 md:mr-1 leading-6 md:max-w-sm">
-            O diálogo de impressão deve abrir automaticamente.
+            Use esta tela para imprimir o relatório ou salvar como PDF no menu de impressão do seu dispositivo.
           </p>
 
           <button
-            onClick={() => window.print()}
+            onClick={handleManualPrint}
             className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
             type="button"
           >
             <Printer size={20} />
-            Imprimir agora
+            Imprimir / Salvar PDF
           </button>
         </div>
       </div>

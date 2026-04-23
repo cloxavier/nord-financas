@@ -17,7 +17,7 @@ import {
   isInstallmentOverdue,
   resolvePatientName,
 } from './businessRules';
-import { parseDateOnlyAsLocalDate } from './utils';
+import { getPatientPhoneDisplay, parseDateOnlyAsLocalDate } from './utils';
 
 /**
  * Calcula a diferença em dias entre hoje e a data de vencimento.
@@ -599,7 +599,7 @@ async function getPatientGrowthReportData(
 ): Promise<PatientGrowthReportData> {
   const { data: patients, error } = await supabase
     .from('patients')
-    .select('id, full_name, phone, email, created_at')
+    .select('id, full_name, phone, phone_country_code, phone_area_code, phone_number, email, created_at')
     .gte('created_at', `${filters.startDate}T00:00:00`)
     .lte('created_at', `${filters.endDate}T23:59:59`)
     .order('created_at', { ascending: true });
@@ -634,7 +634,10 @@ async function getPatientGrowthReportData(
     kind: 'pacientes',
     count: patients?.length || 0,
     chartData: Object.values(grouped),
-    details: patients || [],
+    details: (patients || []).map((patient: any) => ({
+      ...patient,
+      phone: getPatientPhoneDisplay(patient) || null,
+    })),
   };
 }
 

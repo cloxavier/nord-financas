@@ -1,14 +1,14 @@
+
 import { supabase } from '@/src/lib/supabase';
 import { getNotificationSettings } from '@/src/lib/appSettings';
 import { isInstallmentOverdue } from '@/src/lib/businessRules';
 import { getCollectionsSummary } from '@/src/lib/financialMetrics';
+import { digitsOnly, formatPhoneDisplay, getPhonePartsFromPatient } from '@/src/lib/utils';
 import {
   CollectionQueueItem,
   CollectionOperationalSummary,
 } from '@/src/domain/collections/contracts/collectionsContracts';
-import {
-  getCollectionOperationalSummary,
-} from '@/src/domain/collections/services/collectionsReadService';
+import { getCollectionOperationalSummary } from '@/src/domain/collections/services/collectionsReadService';
 
 export type BillingQueueFilter = 'overdue' | 'pending';
 
@@ -19,6 +19,7 @@ export interface BillingQueueRow {
   patientId: string;
   patientName: string;
   patientPhone: string;
+  patientWhatsappPhone: string | null;
   treatmentId?: string | null;
   installmentId?: string | null;
   installmentNumber?: number | null;
@@ -67,74 +68,78 @@ function addDaysToDateOnly(dateStr: string, days: number) {
 }
 
 function isUuidLike(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value.trim()
-  );
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function buildPatientSearchFilter(value: string) {
+  const digits = digitsOnly(value);
+  if (digits) return `full_name.ilike.%${value}%,phone.ilike.%${digits}%`;
+  return `full_name.ilike.%${value}%`;
+}
+
+function buildPatientPhonePayload(patient: any) {
+  const parts = getPhonePartsFromPatient(patient);
+  return {
+    display: formatPhoneDisplay(parts) || '-',
+    whatsapp: `${parts.countryCode}${parts.areaCode}${parts.number}` || null,
+  };
 }
 
 async function loadPatientPhoneMap(patientIds: string[]) {
   if (patientIds.length === 0) {
-    return new Map<string, string>();
+    return new Map<string, { display: string; whatsapp: string | null }>();
   }
 
   const uniquePatientIds = Array.from(new Set(patientIds));
-
   const { data, error } = await supabase
     .from('patients')
-    .select('id, phone')
+    .select('id, phone, phone_country_code, phone_area_code, phone_number')
     .in('id', uniquePatientIds);
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
-  return new Map((data || []).map((patient: any) => [patient.id, patient.phone || '-']));
+  return new Map((data || []).map((patient: any) => [patient.id, buildPatientPhonePayload(patient)]));
 }
 
 async function loadPatientDirectory(patientIds: string[]) {
   if (patientIds.length === 0) {
-    return new Map<string, { name: string; phone: string }>();
+    return new Map<string, { name: string; phone: string; whatsapp: string | null }>();
   }
 
   const uniquePatientIds = Array.from(new Set(patientIds));
-
   const { data, error } = await supabase
     .from('patients')
-    .select('id, full_name, phone')
+    .select('id, full_name, phone, phone_country_code, phone_area_code, phone_number')
     .in('id', uniquePatientIds);
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return new Map(
-    (data || []).map((patient: any) => [
-      patient.id,
-      {
-        name: patient.full_name || 'Paciente sem nome',
-        phone: patient.phone || '-',
-      },
-    ])
+    (data || []).map((patient: any) => {
+      const phonePayload = buildPatientPhonePayload(patient);
+      return [
+        patient.id,
+        {
+          name: patient.full_name || 'Paciente sem nome',
+          phone: phonePayload.display,
+          whatsapp: phonePayload.whatsapp,
+        },
+      ];
+    })
   );
 }
 
 async function loadTreatmentPatientMap(treatmentIds: string[]) {
-  if (treatmentIds.length === 0) {
-    return new Map<string, string>();
-  }
+  if (treatmentIds.length === 0) return new Map<string, string>();
 
   const uniqueTreatmentIds = Array.from(new Set(treatmentIds));
-
   const { data, error } = await supabase
     .from('treatments')
     .select('id, patient_id')
     .in('id', uniqueTreatmentIds);
+  if (error) throw error;
 
-  if (error) {
-    throw error;
-  }
-
-  return new Map((data || []).map((treatment: any) => [treatment.id, treatment.patient_id]));
+  return new Map((data || []).map((treatment: any) => [treatment.id, treatment.patient_id || '']));
 }
 
 async function resolveTreatmentIdsBySearchTerm(searchTerm: string) {
@@ -142,45 +147,32 @@ async function resolveTreatmentIdsBySearchTerm(searchTerm: string) {
   if (!term) return null;
 
   const treatmentIds = new Set<string>();
-
-  if (isUuidLike(term)) {
-    treatmentIds.add(term);
-  }
+  if (isUuidLike(term)) treatmentIds.add(term);
 
   const { data: treatmentsBySnapshot, error: treatmentsBySnapshotError } = await supabase
     .from('treatments')
     .select('id')
     .ilike('patient_name_snapshot', `%${term}%`)
     .limit(100);
-
   if (treatmentsBySnapshotError) throw treatmentsBySnapshotError;
-
-  (treatmentsBySnapshot || []).forEach((item: any) => {
-    if (item?.id) treatmentIds.add(item.id);
-  });
+  (treatmentsBySnapshot || []).forEach((item: any) => { if (item?.id) treatmentIds.add(item.id); });
 
   const { data: patients, error: patientsError } = await supabase
     .from('patients')
     .select('id')
-    .or(`full_name.ilike.%${term}%,phone.ilike.%${term}%`)
+    .or(buildPatientSearchFilter(term))
     .limit(100);
-
   if (patientsError) throw patientsError;
 
   const patientIds = (patients || []).map((item: any) => item.id).filter(Boolean);
-
   if (patientIds.length > 0) {
     const { data: treatmentsByPatient, error: treatmentsByPatientError } = await supabase
       .from('treatments')
       .select('id')
       .in('patient_id', patientIds)
       .limit(200);
-
     if (treatmentsByPatientError) throw treatmentsByPatientError;
-
-    (treatmentsByPatient || []).forEach((item: any) => {
-      if (item?.id) treatmentIds.add(item.id);
-    });
+    (treatmentsByPatient || []).forEach((item: any) => { if (item?.id) treatmentIds.add(item.id); });
   }
 
   return Array.from(treatmentIds);
@@ -190,21 +182,14 @@ async function resolvePatientIdsBySearchTerm(searchTerm: string) {
   const term = searchTerm.trim();
   if (!term) return null;
 
-  const patientIds = new Set<string>();
-
-  const { data: patients, error: patientsError } = await supabase
+  const { data, error } = await supabase
     .from('patients')
     .select('id')
-    .or(`full_name.ilike.%${term}%,phone.ilike.%${term}%`)
+    .or(buildPatientSearchFilter(term))
     .limit(100);
+  if (error) throw error;
 
-  if (patientsError) throw patientsError;
-
-  (patients || []).forEach((item: any) => {
-    if (item?.id) patientIds.add(item.id);
-  });
-
-  return Array.from(patientIds);
+  return (data || []).map((item: any) => item.id).filter(Boolean);
 }
 
 function buildBillingSummary(
@@ -219,11 +204,7 @@ function buildBillingSummary(
   };
 }
 
-async function loadOverdueInstallmentRows(params: {
-  page: number;
-  pageSize: number;
-  searchTerm: string;
-}): Promise<Pick<BillingQueueDataResult, 'rows' | 'totalCount' | 'page' | 'pageSize' | 'totalPages'>> {
+async function loadOverdueInstallmentRows(params: { page: number; pageSize: number; searchTerm: string; }) {
   const page = Math.max(1, Math.floor(params.page || 1));
   const pageSize = Math.max(1, Math.min(100, Math.floor(params.pageSize || 25)));
   const from = (page - 1) * pageSize;
@@ -231,51 +212,31 @@ async function loadOverdueInstallmentRows(params: {
   const today = toDateOnlyLocal();
 
   const treatmentIds = await resolveTreatmentIdsBySearchTerm(params.searchTerm);
-
-  if (treatmentIds && treatmentIds.length === 0) {
-    return { rows: [], totalCount: 0, page, pageSize, totalPages: 0 };
-  }
+  if (treatmentIds && treatmentIds.length === 0) return { rows: [], totalCount: 0, page, pageSize, totalPages: 0 };
 
   let query = supabase
     .from('installments')
-    .select('id, treatment_id, installment_number, due_date, amount, amount_paid, status', {
-      count: 'exact',
-    })
+    .select('id, treatment_id, installment_number, due_date, amount, amount_paid, status', { count: 'exact' })
     .not('status', 'in', '("paid","cancelled")')
     .lt('due_date', today);
 
-  if (treatmentIds && treatmentIds.length > 0) {
-    query = query.in('treatment_id', treatmentIds);
-  }
+  if (treatmentIds && treatmentIds.length > 0) query = query.in('treatment_id', treatmentIds);
 
   const { data: installments, error, count } = await query
     .order('due_date', { ascending: true })
     .order('installment_number', { ascending: true })
     .range(from, to);
-
   if (error) throw error;
 
   const safeInstallments = (installments || []).filter(isInstallmentOverdue);
-
-  const treatmentIdsFromPage = safeInstallments
-    .map((installment: any) => installment.treatment_id)
-    .filter((id): id is string => !!id);
-
+  const treatmentIdsFromPage = safeInstallments.map((installment: any) => installment.treatment_id).filter((id): id is string => !!id);
   const treatmentPatientMap = await loadTreatmentPatientMap(treatmentIdsFromPage);
-
-  const patientIds = safeInstallments
-    .map((installment: any) => treatmentPatientMap.get(installment.treatment_id))
-    .filter((id): id is string => !!id);
-
+  const patientIds = safeInstallments.map((installment: any) => treatmentPatientMap.get(installment.treatment_id)).filter((id): id is string => !!id);
   const patientDirectory = await loadPatientDirectory(patientIds);
 
   const rows: BillingQueueRow[] = safeInstallments.map((installment: any) => {
     const patientId = treatmentPatientMap.get(installment.treatment_id) || '';
-    const patient = patientDirectory.get(patientId) || {
-      name: 'Paciente não encontrado',
-      phone: '-',
-    };
-
+    const patient = patientDirectory.get(patientId) || { name: 'Paciente não encontrado', phone: '-', whatsapp: null };
     const openAmount = Math.max(0, (installment.amount || 0) - (installment.amount_paid || 0));
 
     return {
@@ -285,6 +246,7 @@ async function loadOverdueInstallmentRows(params: {
       patientId,
       patientName: patient.name,
       patientPhone: patient.phone,
+      patientWhatsappPhone: patient.whatsapp,
       treatmentId: installment.treatment_id || null,
       installmentId: installment.id,
       installmentNumber: installment.installment_number ?? null,
@@ -300,16 +262,10 @@ async function loadOverdueInstallmentRows(params: {
 
   const totalCount = count || 0;
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
-
   return { rows, totalCount, page, pageSize, totalPages };
 }
 
-async function loadPendingTaskRows(params: {
-  page: number;
-  pageSize: number;
-  searchTerm: string;
-  dueAlertDays: number;
-}): Promise<Pick<BillingQueueDataResult, 'rows' | 'totalCount' | 'page' | 'pageSize' | 'totalPages'>> {
+async function loadPendingTaskRows(params: { page: number; pageSize: number; searchTerm: string; dueAlertDays: number; }) {
   const page = Math.max(1, Math.floor(params.page || 1));
   const pageSize = Math.max(1, Math.min(100, Math.floor(params.pageSize || 25)));
   const from = (page - 1) * pageSize;
@@ -323,8 +279,7 @@ async function loadPendingTaskRows(params: {
 
   let query = supabase
     .from('collection_tasks')
-    .select(
-      `
+    .select(`
         id,
         patient_id,
         treatment_id,
@@ -337,9 +292,7 @@ async function loadPendingTaskRows(params: {
         scheduled_for,
         amount,
         days_offset
-      `,
-      { count: 'exact' }
-    )
+      `, { count: 'exact' })
     .eq('status', 'pending')
     .in('task_type', ['pre_due_reminder', 'due_today_reminder'])
     .gte('due_date', today)
@@ -361,22 +314,15 @@ async function loadPendingTaskRows(params: {
     .order('scheduled_for', { ascending: true })
     .order('created_at', { ascending: true })
     .range(from, to);
-
   if (error) throw error;
 
   const safeTasks = (tasks || []) as Array<any>;
-  const patientPhoneMap = await loadPatientPhoneMap(
-    safeTasks.map((task: any) => task.patient_id).filter(Boolean)
-  );
-  const patientDirectory = await loadPatientDirectory(
-    safeTasks.map((task: any) => task.patient_id).filter(Boolean)
-  );
+  const patientPhoneMap = await loadPatientPhoneMap(safeTasks.map((task: any) => task.patient_id).filter(Boolean));
+  const patientDirectory = await loadPatientDirectory(safeTasks.map((task: any) => task.patient_id).filter(Boolean));
 
   const rows: BillingQueueRow[] = safeTasks.map((task: any) => {
-    const patient = patientDirectory.get(task.patient_id) || {
-      name: 'Paciente',
-      phone: '-',
-    };
+    const patient = patientDirectory.get(task.patient_id) || { name: 'Paciente', phone: '-', whatsapp: null };
+    const phonePayload = patientPhoneMap.get(task.patient_id);
 
     return {
       id: task.id,
@@ -384,7 +330,8 @@ async function loadPendingTaskRows(params: {
       taskId: task.id,
       patientId: task.patient_id,
       patientName: patient.name,
-      patientPhone: patientPhoneMap.get(task.patient_id) || patient.phone || '-',
+      patientPhone: phonePayload?.display || patient.phone || '-',
+      patientWhatsappPhone: phonePayload?.whatsapp || patient.whatsapp || null,
       treatmentId: task.treatment_id || null,
       installmentId: task.installment_id || null,
       installmentNumber: null,
@@ -400,13 +347,10 @@ async function loadPendingTaskRows(params: {
 
   const totalCount = count || 0;
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
-
   return { rows, totalCount, page, pageSize, totalPages };
 }
 
-export async function getBillingQueueData(
-  params: BillingQueueParams
-): Promise<BillingQueueDataResult> {
+export async function getBillingQueueData(params: BillingQueueParams): Promise<BillingQueueDataResult> {
   const [overdueSummary, operationalSummary, notificationSettings] = await Promise.all([
     getCollectionsSummary(),
     getCollectionOperationalSummary(),
@@ -417,27 +361,10 @@ export async function getBillingQueueData(
   const summary = buildBillingSummary(overdueSummary, operationalSummary);
 
   if (params.filter === 'overdue') {
-    const result = await loadOverdueInstallmentRows({
-      page: params.page,
-      pageSize: params.pageSize,
-      searchTerm: params.searchTerm,
-    });
-
-    return {
-      ...result,
-      summary,
-    };
+    const result = await loadOverdueInstallmentRows({ page: params.page, pageSize: params.pageSize, searchTerm: params.searchTerm });
+    return { ...result, summary };
   }
 
-  const result = await loadPendingTaskRows({
-    page: params.page,
-    pageSize: params.pageSize,
-    searchTerm: params.searchTerm,
-    dueAlertDays,
-  });
-
-  return {
-    ...result,
-    summary,
-  };
+  const result = await loadPendingTaskRows({ page: params.page, pageSize: params.pageSize, searchTerm: params.searchTerm, dueAlertDays });
+  return { ...result, summary };
 }

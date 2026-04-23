@@ -1,3 +1,4 @@
+
 import { supabase } from '@/src/lib/supabase';
 import {
   getInstallmentEffectiveStatus,
@@ -6,6 +7,7 @@ import {
   isInstallmentOverdue,
   resolvePatientName,
 } from '@/src/lib/businessRules';
+import { digitsOnly } from '@/src/lib/utils';
 
 export type InstallmentListFilter = 'all' | 'pending' | 'paid' | 'overdue';
 
@@ -64,9 +66,13 @@ function getTodayDateOnly() {
 }
 
 function isUuidLike(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value.trim()
-  );
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function buildPatientSearchFilter(term: string) {
+  const digits = digitsOnly(term);
+  if (digits) return `full_name.ilike.%${term}%,phone.ilike.%${digits}%`;
+  return `full_name.ilike.%${term}%`;
 }
 
 async function resolveTreatmentIdsBySearchTerm(searchTerm: string) {
@@ -75,44 +81,32 @@ async function resolveTreatmentIdsBySearchTerm(searchTerm: string) {
 
   const treatmentIds = new Set<string>();
 
-  if (isUuidLike(term)) {
-    treatmentIds.add(term);
-  }
+  if (isUuidLike(term)) treatmentIds.add(term);
 
   const { data: treatmentsBySnapshot, error: treatmentsBySnapshotError } = await supabase
     .from('treatments')
     .select('id')
     .ilike('patient_name_snapshot', `%${term}%`)
     .limit(100);
-
   if (treatmentsBySnapshotError) throw treatmentsBySnapshotError;
-
-  (treatmentsBySnapshot || []).forEach((item: any) => {
-    if (item?.id) treatmentIds.add(item.id);
-  });
+  (treatmentsBySnapshot || []).forEach((item: any) => { if (item?.id) treatmentIds.add(item.id); });
 
   const { data: patients, error: patientsError } = await supabase
     .from('patients')
     .select('id')
-    .or(`full_name.ilike.%${term}%,phone.ilike.%${term}%`)
+    .or(buildPatientSearchFilter(term))
     .limit(100);
-
   if (patientsError) throw patientsError;
 
   const patientIds = (patients || []).map((item: any) => item.id).filter(Boolean);
-
   if (patientIds.length > 0) {
     const { data: treatmentsByPatient, error: treatmentsByPatientError } = await supabase
       .from('treatments')
       .select('id')
       .in('patient_id', patientIds)
       .limit(200);
-
     if (treatmentsByPatientError) throw treatmentsByPatientError;
-
-    (treatmentsByPatient || []).forEach((item: any) => {
-      if (item?.id) treatmentIds.add(item.id);
-    });
+    (treatmentsByPatient || []).forEach((item: any) => { if (item?.id) treatmentIds.add(item.id); });
   }
 
   return Array.from(treatmentIds);
@@ -150,38 +144,19 @@ async function getInstallmentListSummary(): Promise<InstallmentListSummary> {
 
   const safeOpenInstallments = openInstallments || [];
   const overdueInstallments = safeOpenInstallments.filter(isInstallmentOverdue);
-  const pendingInstallments = safeOpenInstallments.filter(
-    (item: any) => !isInstallmentOverdue(item)
-  );
+  const pendingInstallments = safeOpenInstallments.filter((item: any) => !isInstallmentOverdue(item));
 
   return {
-    overdueAmount: roundMoney(
-      overdueInstallments.reduce(
-        (sum: number, item: any) => sum + Number(getInstallmentOutstandingAmount(item) || 0),
-        0
-      )
-    ),
+    overdueAmount: roundMoney(overdueInstallments.reduce((sum: number, item: any) => sum + Number(getInstallmentOutstandingAmount(item) || 0), 0)),
     overdueCount: overdueInstallments.length,
-    pendingAmount: roundMoney(
-      pendingInstallments.reduce(
-        (sum: number, item: any) => sum + Number(getInstallmentOutstandingAmount(item) || 0),
-        0
-      )
-    ),
+    pendingAmount: roundMoney(pendingInstallments.reduce((sum: number, item: any) => sum + Number(getInstallmentOutstandingAmount(item) || 0), 0)),
     pendingCount: pendingInstallments.length,
-    paidAmount: roundMoney(
-      (paidInstallments || []).reduce(
-        (sum: number, item: any) => sum + Number(item.amount_paid || 0),
-        0
-      )
-    ),
+    paidAmount: roundMoney((paidInstallments || []).reduce((sum: number, item: any) => sum + Number(item.amount_paid || 0), 0)),
     paidCount: paidInstallments?.length || 0,
   };
 }
 
-export async function getInstallmentsListData(
-  params: InstallmentListParams
-): Promise<InstallmentListResult> {
+export async function getInstallmentsListData(params: InstallmentListParams): Promise<InstallmentListResult> {
   const page = Math.max(1, Math.floor(params.page || 1));
   const pageSize = Math.max(1, Math.min(100, Math.floor(params.pageSize || 25)));
   const from = (page - 1) * pageSize;
@@ -192,21 +167,12 @@ export async function getInstallmentsListData(
   const summary = await getInstallmentListSummary();
 
   if (treatmentIds && treatmentIds.length === 0) {
-    return {
-      rows: [],
-      totalCount: 0,
-      page,
-      pageSize,
-      totalPages: 0,
-      summary,
-    };
+    return { rows: [], totalCount: 0, page, pageSize, totalPages: 0, summary };
   }
 
   let query = supabase
     .from('installments')
-    .select('*, treatments(id, patient_id, patient_name_snapshot, patients(id, full_name))', {
-      count: 'exact',
-    })
+    .select('*, treatments(id, patient_id, patient_name_snapshot, patients(id, full_name))', { count: 'exact' })
     .neq('status', 'cancelled');
 
   if (params.statusFilter === 'paid') {
@@ -232,12 +198,5 @@ export async function getInstallmentsListData(
   const totalCount = count || 0;
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
 
-  return {
-    rows,
-    totalCount,
-    page,
-    pageSize,
-    totalPages,
-    summary,
-  };
+  return { rows, totalCount, page, pageSize, totalPages, summary };
 }

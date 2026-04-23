@@ -48,6 +48,9 @@ export interface Patient {
   full_name: string;
   cpf: string;
   phone: string;
+  phone_country_code?: string | null;
+  phone_area_code?: string | null;
+  phone_number?: string | null;
   email: string;
   birth_date: string;
   address: string;

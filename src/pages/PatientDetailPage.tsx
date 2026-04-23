@@ -25,7 +25,7 @@ import {
   User,
   Lock,
 } from 'lucide-react';
-import { formatDate, formatDateOnly } from '../lib/utils';
+import { formatDate, formatDateOnly, getPatientPhoneDisplay } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { getPermissionSecuritySettings, PermissionSecuritySettingsRecord } from '../lib/appSettings';
 import SensitiveActionDialog from '../components/SensitiveActionDialog';
@@ -252,7 +252,7 @@ export default function PatientDetailPage() {
                 <Phone className="text-gray-400 mt-0.5" size={18} />
                 <div>
                   <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Telefone</p>
-                  <p className="text-sm text-gray-900">{patient.phone || 'Não informado'}</p>
+                  <p className="text-sm text-gray-900">{getPatientPhoneDisplay(patient) || 'Não informado'}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">

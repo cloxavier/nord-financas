@@ -172,22 +172,22 @@ export default function BillingPage() {
     return `Olá ${name}, tudo bem? Aqui é da Nord Finanças. Notamos que ${amountText} com vencimento em ${formatDate(dueDate)} ainda precisa de acompanhamento. Poderia nos responder por aqui?`;
   };
 
-  const getWhatsAppLink = (phone: string, name: string, amount: number, dueDate: string) => {
+  const getWhatsAppLink = (whatsappPhone: string | null, name: string, amount: number, dueDate: string) => {
     const message = getBillingMessage(name, amount, dueDate);
-    return buildWhatsAppLink(phone, message);
+    return buildWhatsAppLink(whatsappPhone, message);
   };
 
   const handleOpenWhatsApp = (
-    phone: string,
+    whatsappPhone: string | null,
     name: string,
     amount: number,
     dueDate: string
   ) => {
-    const link = getWhatsAppLink(phone, name, amount, dueDate);
+    const link = getWhatsAppLink(whatsappPhone, name, amount, dueDate);
 
     if (!link) {
       alert(
-        'Não foi possível abrir o WhatsApp porque o telefone do paciente está ausente ou incompleto. Cadastre DDD + número para o contato funcionar corretamente.'
+        'Não foi possível abrir o WhatsApp porque o telefone do paciente está ausente ou incompleto. Atualize código do país, DDD e número no cadastro do paciente.'
       );
       return;
     }
@@ -402,7 +402,7 @@ export default function BillingPage() {
                               <button
                                 onClick={() =>
                                   handleOpenWhatsApp(
-                                    row.patientPhone,
+                                    row.patientWhatsappPhone,
                                     row.patientName,
                                     row.amount,
                                     row.dueDate
@@ -559,7 +559,7 @@ export default function BillingPage() {
                         <button
                           onClick={() =>
                             handleOpenWhatsApp(
-                              row.patientPhone,
+                              row.patientWhatsappPhone,
                               row.patientName,
                               row.amount,
                               row.dueDate

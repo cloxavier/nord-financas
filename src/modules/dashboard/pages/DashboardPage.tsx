@@ -6,6 +6,7 @@
  * - aplica activities_view
  * - não busca nem exibe atividades recentes para quem não possui essa permissão
  * - torna as atividades recentes clicáveis quando existe destino válido
+ * - incorpora um resumo executivo do mês para gestores com visão financeira adequada
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -20,13 +21,25 @@ import {
   MessageCircle,
   Stethoscope,
   Bell,
+  WalletCards,
+  BarChart3,
+  AlertTriangle,
+  CircleDollarSign,
+  Target,
 } from 'lucide-react';
 
 import { useAuth } from '@/src/contexts/AuthContext';
 import {
   canSeeCollections as resolveCanSeeCollections,
+  canSeeExecutiveDashboard as resolveCanSeeExecutiveDashboard,
   filterItemsByPermission,
 } from '@/src/domain/access/policies/accessPolicies';
+import {
+  canViewFinancialSummary,
+  canViewMonthlyForecast,
+  canViewOpenAmountTotal,
+  getMonthsForwardVisible,
+} from '@/src/domain/access/policies/financialScopePolicies';
 import { formatCurrency, cn } from '@/src/lib/utils';
 import { getWidgetsBySlot } from '@/src/app/moduleRegistry';
 import { dashboardStatCardDefinitions } from '@/src/modules/dashboard/config/statCards';
@@ -35,6 +48,7 @@ import {
   DashboardReminderState,
   getDashboardSnapshot,
 } from '@/src/modules/dashboard/services/dashboardSnapshotService';
+import type { DashboardExecutiveSummary } from '@/src/lib/financialMetrics';
 
 const RECENT_ACTIVITIES_LIMIT = 5;
 
@@ -61,11 +75,40 @@ interface ReminderAction {
   dotColor: string;
 }
 
+function formatDeltaLabel(value: number | null, mode: 'currency' | 'percentage' = 'percentage') {
+  if (value === null) return 'Sem base anterior';
+
+  const prefix = value > 0 ? '+' : '';
+  if (mode === 'currency') {
+    return `${prefix}${value.toFixed(1).replace('.', ',')}%`;
+  }
+
+  return `${prefix}${value.toFixed(1).replace('.', ',')}%`;
+}
+
+function getDeltaTone(value: number | null, inverse = false) {
+  if (value === null || value === 0) return 'text-gray-500';
+
+  const isPositive = value > 0;
+  const shouldBeGood = inverse ? !isPositive : isPositive;
+
+  return shouldBeGood ? 'text-green-600' : 'text-red-600';
+}
+
 export default function DashboardPage() {
-  const { permissions, hasPermission } = useAuth();
+  const { permissions, hasPermission, financialScope } = useAuth();
 
   const canSeeCollections = resolveCanSeeCollections(permissions);
   const canSeeActivities = hasPermission('activities_view');
+  const canSeeExecutiveDashboard = resolveCanSeeExecutiveDashboard(permissions);
+  const canSeeExecutiveSummary =
+    canSeeExecutiveDashboard && canViewFinancialSummary(financialScope);
+  const canSeeExecutiveOpenTotals = canViewOpenAmountTotal(financialScope);
+  const canSeeExecutiveForecast = canViewMonthlyForecast(financialScope);
+  const executiveForecastMonths = Math.min(
+    Math.max(getMonthsForwardVisible(financialScope) || 3, 1),
+    4
+  );
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStatCard[]>([]);
@@ -75,6 +118,7 @@ export default function DashboardPage() {
     overdue: 0,
     pendingTreatments: 0,
   });
+  const [executiveSummary, setExecutiveSummary] = useState<DashboardExecutiveSummary | null>(null);
 
   const [notificationPreferences, setNotificationPreferences] =
     useState<DashboardNotificationPreferences>({
@@ -85,7 +129,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchDashboardData();
-  }, [canSeeActivities]);
+  }, [canSeeActivities, canSeeExecutiveSummary, executiveForecastMonths]);
 
   async function fetchDashboardData() {
     setLoading(true);
@@ -93,6 +137,8 @@ export default function DashboardPage() {
     try {
       const snapshot = await getDashboardSnapshot({
         includeRecentActivities: canSeeActivities,
+        includeExecutiveSummary: canSeeExecutiveSummary,
+        executiveForecastMonths,
       });
 
       setNotificationPreferences(snapshot.notificationPreferences);
@@ -132,6 +178,7 @@ export default function DashboardPage() {
 
       setRecentActivities(canSeeActivities ? snapshot.recentActivities : []);
       setReminders(snapshot.reminders);
+      setExecutiveSummary(canSeeExecutiveSummary ? snapshot.executiveSummary : null);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
 
@@ -142,6 +189,7 @@ export default function DashboardPage() {
       });
 
       setRecentActivities([]);
+      setExecutiveSummary(null);
     } finally {
       setLoading(false);
     }
@@ -341,6 +389,198 @@ export default function DashboardPage() {
           </Link>
         ))}
       </div>
+
+      {canSeeExecutiveSummary && executiveSummary && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border shadow-sm p-6">
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-6">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 border border-indigo-100 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-indigo-700 mb-3">
+                  <WalletCards size={13} />
+                  Resumo executivo do mês
+                </div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  Visão financeira rápida de {executiveSummary.monthLabel}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Leitura gerencial do mês atual, sem precisar abrir o relatório completo.
+                </p>
+              </div>
+
+              <Link
+                to="/relatorios/financeiro-executivo"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-indigo-100 text-indigo-700 font-semibold hover:bg-indigo-50 transition-colors"
+              >
+                Abrir relatório executivo
+                <ArrowRight size={16} />
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="rounded-xl border bg-gray-50 p-4">
+                <div className="flex items-center gap-2 text-green-700 mb-2">
+                  <CircleDollarSign size={16} />
+                  <p className="text-[11px] font-bold uppercase tracking-wider">
+                    Recebido no mês
+                  </p>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatCurrency(executiveSummary.receivedTotal)}
+                </p>
+                <p className={cn('text-xs mt-2 font-semibold', getDeltaTone(executiveSummary.receivedDeltaPercent))}>
+                  vs {executiveSummary.previousMonthLabel}: {formatDeltaLabel(executiveSummary.receivedDeltaPercent)}
+                </p>
+              </div>
+
+              <div className="rounded-xl border bg-gray-50 p-4">
+                <div className="flex items-center gap-2 text-blue-700 mb-2">
+                  <Target size={16} />
+                  <p className="text-[11px] font-bold uppercase tracking-wider">
+                    Previsto no mês
+                  </p>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatCurrency(executiveSummary.scheduledTotal)}
+                </p>
+                <p className="text-xs mt-2 text-gray-500 font-medium">
+                  Ticket médio: {formatCurrency(executiveSummary.averageTicket)}
+                </p>
+              </div>
+
+              <div className="rounded-xl border bg-gray-50 p-4">
+                <div className="flex items-center gap-2 text-red-700 mb-2">
+                  <AlertTriangle size={16} />
+                  <p className="text-[11px] font-bold uppercase tracking-wider">
+                    Em atraso no mês
+                  </p>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatCurrency(executiveSummary.overdueInPeriodTotal)}
+                </p>
+                <p className={cn('text-xs mt-2 font-semibold', getDeltaTone(executiveSummary.overdueDeltaPercent, true))}>
+                  vs {executiveSummary.previousMonthLabel}: {formatDeltaLabel(executiveSummary.overdueDeltaPercent)}
+                </p>
+              </div>
+
+              <div className="rounded-xl border bg-gray-50 p-4">
+                <div className="flex items-center gap-2 text-indigo-700 mb-2">
+                  <BarChart3 size={16} />
+                  <p className="text-[11px] font-bold uppercase tracking-wider">
+                    Taxa de recebimento
+                  </p>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {executiveSummary.collectionRatePercent === null
+                    ? 'N/A'
+                    : `${executiveSummary.collectionRatePercent.toFixed(1).replace('.', ',')}%`}
+                </p>
+                <p className={cn('text-xs mt-2 font-semibold', getDeltaTone(executiveSummary.collectionRateDeltaPercent))}>
+                  vs {executiveSummary.previousMonthLabel}: {formatDeltaLabel(executiveSummary.collectionRateDeltaPercent)}
+                </p>
+              </div>
+            </div>
+
+            {canSeeExecutiveOpenTotals && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700">
+                    Carteira em aberto
+                  </p>
+                  <p className="text-xl font-bold text-gray-900 mt-2">
+                    {formatCurrency(executiveSummary.openPortfolioTotal)}
+                  </p>
+                  <p className="text-xs text-amber-800 mt-2">
+                    Total ainda pendente na carteira aberta da clínica.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-red-700">
+                    Carteira vencida
+                  </p>
+                  <p className="text-xl font-bold text-gray-900 mt-2">
+                    {formatCurrency(executiveSummary.overduePortfolioTotal)}
+                  </p>
+                  <p className="text-xs text-red-800 mt-2">
+                    Valor total hoje em atraso dentro da carteira.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="bg-white rounded-xl border shadow-sm p-5 xl:col-span-2">
+              <h3 className="font-bold text-gray-900">Comparativo do mês atual</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Leitura resumida contra {executiveSummary.previousMonthLabel}.
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2">
+                    Recebimento
+                  </p>
+                  <p className={cn('text-sm font-bold', getDeltaTone(executiveSummary.receivedDeltaPercent))}>
+                    {formatDeltaLabel(executiveSummary.receivedDeltaPercent)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Mede a evolução do caixa recebido no mês.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2">
+                    Inadimplência do mês
+                  </p>
+                  <p className={cn('text-sm font-bold', getDeltaTone(executiveSummary.overdueDeltaPercent, true))}>
+                    {formatDeltaLabel(executiveSummary.overdueDeltaPercent)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Queda é positiva; alta merece acompanhamento.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2">
+                    Eficiência de recebimento
+                  </p>
+                  <p className={cn('text-sm font-bold', getDeltaTone(executiveSummary.collectionRateDeltaPercent))}>
+                    {formatDeltaLabel(executiveSummary.collectionRateDeltaPercent)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Relação entre previsto e efetivamente recebido.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {canSeeExecutiveForecast && executiveSummary.forecastPreview.length > 0 && (
+              <div className="bg-white rounded-xl border shadow-sm p-5">
+                <h3 className="font-bold text-gray-900">Próximos meses</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Carteira aberta prevista para os próximos {executiveSummary.forecastPreview.length} meses.
+                </p>
+
+                <div className="mt-4 space-y-3">
+                  {executiveSummary.forecastPreview.map((item) => (
+                    <div key={item.monthKey} className="rounded-lg border px-4 py-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{item.monthLabel}</p>
+                        <p className="text-xs text-gray-500">Carteira aberta prevista</p>
+                      </div>
+
+                      <p className="text-sm font-bold text-gray-900">
+                        {formatCurrency(item.openAmount)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {(canSeeActivities || showRightColumn) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

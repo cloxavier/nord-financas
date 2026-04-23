@@ -1,5 +1,9 @@
 import { supabase } from '@/src/lib/supabase';
-import { getDashboardMetrics } from '@/src/lib/financialMetrics';
+import {
+  getDashboardMetrics,
+  getDashboardExecutiveSummary,
+  type DashboardExecutiveSummary,
+} from '@/src/lib/financialMetrics';
 import { resolvePatientName } from '@/src/lib/businessRules';
 import { getNotificationSettings } from '@/src/lib/appSettings';
 import { formatDateTime } from '@/src/lib/utils';
@@ -38,6 +42,8 @@ export interface DashboardMetricsSnapshot {
 
 export interface DashboardSnapshotOptions {
   includeRecentActivities?: boolean;
+  includeExecutiveSummary?: boolean;
+  executiveForecastMonths?: number;
 }
 
 export interface DashboardSnapshot {
@@ -45,6 +51,7 @@ export interface DashboardSnapshot {
   recentActivities: DashboardRecentActivity[];
   reminders: DashboardReminderState;
   notificationPreferences: DashboardNotificationPreferences;
+  executiveSummary: DashboardExecutiveSummary | null;
 }
 
 function resolveActivityType(
@@ -124,11 +131,16 @@ function resolveActivityTarget(params: {
  * - respeita includeRecentActivities
  * - evita buscar atividades quando o usuário não possui activities_view
  * - enriquece as atividades com destino clicável
+ * - injeta um resumo executivo pronto para o dashboard quando necessário
  */
 export async function getDashboardSnapshot(
   options: DashboardSnapshotOptions = {}
 ): Promise<DashboardSnapshot> {
-  const { includeRecentActivities = true } = options;
+  const {
+    includeRecentActivities = true,
+    includeExecutiveSummary = false,
+    executiveForecastMonths = 3,
+  } = options;
 
   const notificationSettings = await getNotificationSettings();
   const safeAlertDays = Math.max(0, Number(notificationSettings.due_alert_days || '3'));
@@ -139,7 +151,14 @@ export async function getDashboardSnapshot(
     enableWhatsappQuickCharge: notificationSettings.enable_whatsapp_quick_charge,
   };
 
-  const dashboardMetrics = await getDashboardMetrics(safeAlertDays);
+  const [dashboardMetrics, executiveSummary] = await Promise.all([
+    getDashboardMetrics(safeAlertDays),
+    includeExecutiveSummary
+      ? getDashboardExecutiveSummary(new Date(), {
+          forecastMonths: executiveForecastMonths,
+        })
+      : Promise.resolve(null),
+  ]);
 
   let recentActivities: DashboardRecentActivity[] = [];
 
@@ -234,5 +253,6 @@ export async function getDashboardSnapshot(
     recentActivities,
     reminders,
     notificationPreferences,
+    executiveSummary,
   };
 }

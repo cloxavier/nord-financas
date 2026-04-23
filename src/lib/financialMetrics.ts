@@ -8,6 +8,7 @@
  * - unificamos a base de dados consumida por:
  *   - ReportViewPage
  *   - ReportPrintPage
+ * - adicionamos um resumo executivo enxuto para o dashboard
  */
 
 import { supabase } from './supabase';
@@ -321,6 +322,25 @@ export interface ExecutiveFinancialReportData {
   topOverdueDetails: ExecutiveOverdueDetail[];
 }
 
+export interface DashboardExecutiveSummary {
+  monthLabel: string;
+  periodStart: string;
+  periodEnd: string;
+  receivedTotal: number;
+  scheduledTotal: number;
+  overdueInPeriodTotal: number;
+  openPortfolioTotal: number;
+  overduePortfolioTotal: number;
+  averageTicket: number;
+  receivedCount: number;
+  collectionRatePercent: number | null;
+  previousMonthLabel: string;
+  receivedDeltaPercent: number | null;
+  overdueDeltaPercent: number | null;
+  collectionRateDeltaPercent: number | null;
+  forecastPreview: ExecutiveForecastPoint[];
+}
+
 export type FinancialReportData =
   | CashFlowReportData
   | OverdueReportData
@@ -416,6 +436,33 @@ function isDateWithinRange(dateStr: string, startDate: string, endDate: string) 
   return current >= start && current <= end;
 }
 
+function getMonthDateRange(referenceDate = new Date()) {
+  const start = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1, 12, 0, 0, 0);
+  const end = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0, 12, 0, 0, 0);
+
+  return {
+    startDate: toDateOnlyInput(start),
+    endDate: toDateOnlyInput(end),
+    monthLabel: getMonthLabel(getMonthKey(start)),
+  };
+}
+
+function getPreviousMonthDateRange(referenceDate = new Date()) {
+  const previous = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - 1, 1, 12, 0, 0, 0);
+  return getMonthDateRange(previous);
+}
+
+function calculateDeltaPercent(current: number | null, previous: number | null) {
+  if (current === null || previous === null) return null;
+
+  if (previous === 0) {
+    if (current === 0) return 0;
+    return 100;
+  }
+
+  return roundMoney(((current - previous) / Math.abs(previous)) * 100);
+}
+
 async function getCashFlowReportData(filters: ReportFilters): Promise<CashFlowReportData> {
   const { data: payments, error } = await supabase
     .from('payment_records')
@@ -433,12 +480,12 @@ async function getCashFlowReportData(filters: ReportFilters): Promise<CashFlowRe
   }, {});
 
   const chartData = Object.entries(grouped)
-  .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
-  .map(([date, amount]) => ({
-    rawDate: date,
-    date: date.split('-').reverse().join('/'),
-    amount: roundMoney(Number(amount)),
-  }));
+    .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+    .map(([date, amount]) => ({
+      rawDate: date,
+      date: date.split('-').reverse().join('/'),
+      amount: roundMoney(Number(amount)),
+    }));
 
   const total = roundMoney(
     (payments || []).reduce((sum, p: any) => sum + Number(p.amount_paid || 0), 0)
@@ -466,7 +513,11 @@ async function getOverdueReportData(filters: ReportFilters): Promise<OverdueRepo
   if (error) throw error;
 
   const overdue = (installments || [])
-    .filter((item) => isInstallmentOverdue(item) && isDateWithinRange(item.due_date, filters.startDate, filters.endDate))
+    .filter(
+      (item) =>
+        isInstallmentOverdue(item) &&
+        isDateWithinRange(item.due_date, filters.startDate, filters.endDate)
+    )
     .map((item) => ({
       ...item,
       patientName: resolvePatientName(item),
@@ -744,6 +795,54 @@ async function getExecutiveFinancialReportData(
     monthlyComparison: Object.values(comparisonBase),
     forecastNext12Months: Object.values(forecastBase),
     topOverdueDetails,
+  };
+}
+
+export async function getDashboardExecutiveSummary(
+  referenceDate = new Date(),
+  options?: { forecastMonths?: number }
+): Promise<DashboardExecutiveSummary> {
+  const currentRange = getMonthDateRange(referenceDate);
+  const previousRange = getPreviousMonthDateRange(referenceDate);
+  const forecastMonths = Math.min(Math.max(options?.forecastMonths ?? 3, 1), 6);
+
+  const [currentReport, previousReport] = await Promise.all([
+    getExecutiveFinancialReportData({
+      startDate: currentRange.startDate,
+      endDate: currentRange.endDate,
+    }),
+    getExecutiveFinancialReportData({
+      startDate: previousRange.startDate,
+      endDate: previousRange.endDate,
+    }),
+  ]);
+
+  return {
+    monthLabel: currentRange.monthLabel,
+    periodStart: currentRange.startDate,
+    periodEnd: currentRange.endDate,
+    receivedTotal: currentReport.summary.receivedTotal,
+    scheduledTotal: currentReport.summary.scheduledInPeriodTotal,
+    overdueInPeriodTotal: currentReport.summary.overdueInPeriodTotal,
+    openPortfolioTotal: currentReport.summary.openPortfolioTotal,
+    overduePortfolioTotal: currentReport.summary.overduePortfolioTotal,
+    averageTicket: currentReport.summary.averageTicket,
+    receivedCount: currentReport.summary.receivedCount,
+    collectionRatePercent: currentReport.summary.collectionRatePercent,
+    previousMonthLabel: previousRange.monthLabel,
+    receivedDeltaPercent: calculateDeltaPercent(
+      currentReport.summary.receivedTotal,
+      previousReport.summary.receivedTotal
+    ),
+    overdueDeltaPercent: calculateDeltaPercent(
+      currentReport.summary.overdueInPeriodTotal,
+      previousReport.summary.overdueInPeriodTotal
+    ),
+    collectionRateDeltaPercent: calculateDeltaPercent(
+      currentReport.summary.collectionRatePercent,
+      previousReport.summary.collectionRatePercent
+    ),
+    forecastPreview: currentReport.forecastNext12Months.slice(1, 1 + forecastMonths),
   };
 }
 
